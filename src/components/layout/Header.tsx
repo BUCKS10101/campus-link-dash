@@ -11,14 +11,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '@/hooks/useAuth'
 
 const Header = () => {
   const navigate = useNavigate()
+  const { user, signOut } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
 
-  const handleLogout = () => {
-    // TODO: Implement logout logic with Supabase
-    navigate('/login')
+  const handleLogout = async () => {
+    try {
+      await signOut()
+      navigate('/login')
+    } catch (error) {
+      console.error('Error signing out:', error)
+    }
   }
 
   return (
@@ -70,17 +76,19 @@ const Header = () => {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src="/avatars/01.png" alt="User" />
-                  <AvatarFallback className="bg-primary text-primary-foreground">G</AvatarFallback>
+                  <AvatarImage src={user?.profile?.avatar_url || ''} alt="User" />
+                  <AvatarFallback className="bg-primary text-primary-foreground">
+                    {user?.profile?.full_name?.charAt(0) || user?.user?.email?.charAt(0) || 'U'}
+                  </AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
               <div className="flex items-center justify-start gap-2 p-2">
                 <div className="flex flex-col space-y-1 leading-none">
-                  <p className="font-medium">govind</p>
+                  <p className="font-medium">{user?.profile?.full_name || 'User'}</p>
                   <p className="w-[200px] truncate text-sm text-muted-foreground">
-                    +91-7736359996
+                    {user?.profile?.phone || user?.user?.email}
                   </p>
                 </div>
               </div>

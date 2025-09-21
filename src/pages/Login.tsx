@@ -1,24 +1,32 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Mail, Phone, User } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/hooks/useAuth'
 import { useToast } from '@/hooks/use-toast'
 
 const Login = () => {
   const navigate = useNavigate()
   const { toast } = useToast()
-  const [step, setStep] = useState<'register' | 'otp'>('register')
+  const { user, loading: authLoading, signUp, signIn } = useAuth()
+  const [step, setStep] = useState<'login' | 'register' | 'otp'>('login')
   const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
-    phone: ''
+    phone: '',
+    password: ''
   })
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
+
+  useEffect(() => {
+    if (user) {
+      navigate('/')
+    }
+  }, [user, navigate])
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -38,8 +46,39 @@ const Login = () => {
     }
   }
 
-  const handleSendOtp = async () => {
-    if (!formData.fullName || !formData.email || !formData.phone) {
+  const handleLogin = async () => {
+    if (!formData.email || !formData.password) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in email and password",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setLoading(true)
+    try {
+      await signIn(formData.email, formData.password)
+      
+      toast({
+        title: "Welcome back!",
+        description: "You have been logged in successfully"
+      })
+      
+      navigate('/')
+    } catch (error: any) {
+      toast({
+        title: "Login Failed",
+        description: error.message || "Invalid credentials. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRegister = async () => {
+    if (!formData.fullName || !formData.email || !formData.phone || !formData.password) {
       toast({
         title: "Missing Information",
         description: "Please fill in all fields",
@@ -50,54 +89,21 @@ const Login = () => {
 
     setLoading(true)
     try {
-      // TODO: Implement OTP sending with Supabase
-      // For now, simulate OTP sending
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      toast({
-        title: "OTP Sent",
-        description: "Please check your phone for the verification code"
+      await signUp(formData.email, formData.password, {
+        fullName: formData.fullName,
+        phone: formData.phone
       })
       
-      setStep('otp')
-    } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to send OTP. Please try again.",
-        variant: "destructive"
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleVerifyOtp = async () => {
-    const otpCode = otp.join('')
-    if (otpCode.length !== 6) {
-      toast({
-        title: "Invalid OTP",
-        description: "Please enter all 6 digits",
-        variant: "destructive"
-      })
-      return
-    }
-
-    setLoading(true)
-    try {
-      // TODO: Implement OTP verification with Supabase
-      // For now, simulate successful verification
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      toast({
-        title: "Welcome to CampusLink!",
-        description: "Your account has been verified successfully"
+        title: "Registration Successful!",
+        description: "Please check your email to verify your account"
       })
       
       navigate('/')
-    } catch (error) {
+    } catch (error: any) {
       toast({
-        title: "Verification Failed",
-        description: "Invalid OTP. Please try again.",
+        title: "Registration Failed",
+        description: error.message || "Please try again.",
         variant: "destructive"
       })
     } finally {
@@ -113,15 +119,61 @@ const Login = () => {
             CampusLink VIT
           </CardTitle>
           <CardDescription>
-            {step === 'register' 
-              ? 'Register with your VIT student details'
-              : 'Enter the OTP sent to your phone'
+            {step === 'login'
+              ? 'Sign in with your credentials'
+              : 'Register with your VIT student details'
             }
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-6">
-          {step === 'register' ? (
+          {step === 'login' ? (
+            <>
+              {/* Email */}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="your.email@vitstudent.ac.in"
+                    value={formData.email}
+                    onChange={(e) => handleInputChange('email', e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Enter your password"
+                  value={formData.password}
+                  onChange={(e) => handleInputChange('password', e.target.value)}
+                />
+              </div>
+
+              <Button 
+                onClick={handleLogin}
+                disabled={loading || authLoading}
+                className="w-full btn-campus-primary"
+              >
+                {loading ? 'Signing In...' : 'Sign In'}
+              </Button>
+
+              <Button 
+                variant="ghost"
+                onClick={() => setStep('register')}
+                className="w-full"
+              >
+                Don't have an account? Register
+              </Button>
+            </>
+          ) : (
             <>
               {/* Full Name */}
               <div className="space-y-2">
@@ -145,6 +197,7 @@ const Login = () => {
                   <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     id="email"
+                    type="email"
                     placeholder="yourname@vitstudent.ac.in"
                     value={formData.email}
                     onChange={(e) => handleInputChange('email', e.target.value)}
@@ -175,52 +228,33 @@ const Login = () => {
                 </div>
               </div>
 
+              {/* Password */}
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Create a password"
+                  value={formData.password}
+                  onChange={(e) => handleInputChange('password', e.target.value)}
+                />
+              </div>
+
               <Button 
-                onClick={handleSendOtp}
-                disabled={loading}
+                onClick={handleRegister}
+                disabled={loading || authLoading}
                 className="w-full btn-campus-primary"
               >
-                {loading ? 'Sending...' : 'Send OTP →'}
+                {loading ? 'Creating Account...' : 'Create Account'}
               </Button>
-            </>
-          ) : (
-            <>
-              {/* OTP Input */}
-              <div className="space-y-2">
-                <Label>Enter OTP</Label>
-                <div className="flex justify-center space-x-2">
-                  {otp.map((digit, index) => (
-                    <Input
-                      key={index}
-                      id={`otp-${index}`}
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={1}
-                      value={digit}
-                      onChange={(e) => handleOtpChange(index, e.target.value)}
-                      className="w-12 h-12 text-center text-lg font-semibold"
-                    />
-                  ))}
-                </div>
-              </div>
 
-              <div className="space-y-3">
-                <Button 
-                  onClick={handleVerifyOtp}
-                  disabled={loading}
-                  className="w-full btn-campus-primary"
-                >
-                  {loading ? 'Verifying...' : 'Verify & Continue'}
-                </Button>
-
-                <Button 
-                  variant="ghost"
-                  onClick={() => setStep('register')}
-                  className="w-full"
-                >
-                  ← Back to Registration
-                </Button>
-              </div>
+              <Button 
+                variant="ghost"
+                onClick={() => setStep('login')}
+                className="w-full"
+              >
+                Already have an account? Sign In
+              </Button>
             </>
           )}
         </CardContent>

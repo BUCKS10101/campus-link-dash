@@ -5,147 +5,102 @@ import Header from '@/components/layout/Header'
 import MobileNav from '@/components/layout/MobileNav'
 import SupportChat from '@/components/support/SupportChat'
 import OrderCard from '@/components/orders/OrderCard'
-import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/hooks/useAuth'
+import { useOrders } from '@/hooks/useOrders'
 import { useToast } from '@/hooks/use-toast'
+import { useNavigate } from 'react-router-dom'
 
 const Home = () => {
   const { toast } = useToast()
+  const navigate = useNavigate()
+  const { user, loading: authLoading } = useAuth()
+  const { orders, loading, fetchOrders, acceptOrder, subscribeToOrders } = useOrders()
   const [activeFilter, setActiveFilter] = useState('all')
-  const [orders, setOrders] = useState([
-    {
-      id: '1',
-      restaurant: { name: 'One Food', icon: '🍔' },
-      customer: 'Arjun Kumar',
-      items: '2x Chicken Burger + 1x Fries',
-      price: 240,
-      tip: 35,
-      distance: '0.8 km',
-      location: 'Hostel K Block to Central Library',
-      timeAgo: '2 min ago',
-      isFriend: true
-    },
-    {
-      id: '2',
-      restaurant: { name: 'DC Cafe', icon: '☕' },
-      customer: 'Priya Sharma',
-      items: '1x Cappuccino + 2x Sandwich',
-      price: 180,
-      tip: 25,
-      distance: '1.2 km',
-      location: 'Ladies Hostel M to TT Block',
-      timeAgo: '5 min ago'
-    },
-    {
-      id: '3',
-      restaurant: { name: 'Campus Store', icon: '🛒' },
-      customer: 'Rahul Verma',
-      items: 'Notebooks + Pens + Snacks',
-      price: 350,
-      tip: 40,
-      distance: '0.5 km',
-      location: 'Hostel A to SMV',
-      timeAgo: '8 min ago',
-      isFriend: true
-    },
-    {
-      id: '4',
-      restaurant: { name: 'One Food', icon: '🍔' },
-      customer: 'Ananya Patel',
-      items: '1x Veg Pizza + 1x Coke',
-      price: 290,
-      tip: 30,
-      distance: '1.5 km',
-      location: 'Hostel Q to SJT Block',
-      timeAgo: '10 min ago'
-    },
-    {
-      id: '5',
-      restaurant: { name: 'DC Cafe', icon: '☕' },
-      customer: 'Sneha Reddy',
-      items: '2x Cold Coffee + 1x Pastry',
-      price: 220,
-      tip: 45,
-      distance: '0.7 km',
-      location: 'Ladies Hostel D to GDN',
-      timeAgo: '12 min ago',
-      isFriend: true
-    },
-    {
-      id: '6',
-      restaurant: { name: 'Campus Store', icon: '🛒' },
-      customer: 'Vikram Singh',
-      items: 'Lab Manual + Calculator',
-      price: 450,
-      tip: 50,
-      distance: '1.0 km',
-      location: 'Hostel J to MB',
-      timeAgo: '15 min ago'
-    },
-    {
-      id: '7',
-      restaurant: { name: 'One Food', icon: '🍔' },
-      customer: 'Neha Gupta',
-      items: '3x Wraps + 2x Juice',
-      price: 380,
-      tip: 35,
-      distance: '0.9 km',
-      location: 'Hostel B to PRP',
-      timeAgo: '18 min ago',
-      isFriend: true
-    },
-    {
-      id: '8',
-      restaurant: { name: 'DC Cafe', icon: '☕' },
-      customer: 'Amit Joshi',
-      items: '1x Tea + 2x Cookies',
-      price: 80,
-      tip: 20,
-      distance: '0.3 km',
-      location: 'Hostel C to Library',
-      timeAgo: '20 min ago'
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate('/login')
+      return
     }
-  ])
+
+    if (user) {
+      // Initial fetch
+      fetchOrders({
+        status: activeFilter === 'all' ? undefined : activeFilter,
+        friendsOnly: activeFilter === 'friends',
+        nearby: activeFilter === 'nearby',
+        highTips: activeFilter === 'high-tips',
+        userId: user.user.id
+      })
+
+      // Subscribe to real-time updates
+      const unsubscribe = subscribeToOrders((payload) => {
+        console.log('Order update:', payload)
+        // Refetch orders when there's an update
+        fetchOrders({
+          status: activeFilter === 'all' ? undefined : activeFilter,
+          friendsOnly: activeFilter === 'friends',
+          nearby: activeFilter === 'nearby',
+          highTips: activeFilter === 'high-tips',
+          userId: user.user.id
+        })
+      })
+
+      return unsubscribe
+    }
+  }, [user, authLoading, activeFilter])
+
+  useEffect(() => {
+    if (user && activeFilter) {
+      fetchOrders({
+        status: activeFilter === 'all' ? undefined : activeFilter,
+        friendsOnly: activeFilter === 'friends',
+        nearby: activeFilter === 'nearby',
+        highTips: activeFilter === 'high-tips',
+        userId: user.user.id
+      })
+    }
+  }, [activeFilter, user])
 
   const filters = [
     { key: 'all', label: 'All Orders', count: orders.length },
-    { key: 'friends', label: 'Friends', count: orders.filter(o => o.isFriend).length },
-    { key: 'nearby', label: 'Nearby', count: orders.filter(o => parseFloat(o.distance) < 1).length },
-    { key: 'high-tips', label: 'High Tips', count: orders.filter(o => o.tip >= 40).length }
+    { key: 'friends', label: 'Friends', count: orders.filter(o => o.is_friend).length },
+    { key: 'nearby', label: 'Nearby', count: orders.filter(o => o.distance < 1).length },
+    { key: 'high-tips', label: 'High Tips', count: orders.filter(o => o.tip_amount >= 40).length }
   ]
 
-  const getFilteredOrders = () => {
-    switch (activeFilter) {
-      case 'friends':
-        return orders.filter(order => order.isFriend)
-      case 'nearby':
-        return orders.filter(order => parseFloat(order.distance) < 1)
-      case 'high-tips':
-        return orders.filter(order => order.tip >= 40)
-      default:
-        return orders
-    }
-  }
-
   const handleAcceptOrder = async (orderId: string) => {
+    if (!user) return
+    
     try {
-      // TODO: Implement order acceptance with Supabase
+      await acceptOrder(orderId, user.user.id)
+      
       toast({
         title: "Order Accepted!",
         description: "You can now start the delivery process."
       })
       
-      // Remove the accepted order from the list
-      setOrders(prev => prev.filter(order => order.id !== orderId))
-    } catch (error) {
+      // Navigate to order details
+      navigate(`/my-orders`)
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: "Failed to accept order. Please try again.",
+        description: error.message || "Failed to accept order. Please try again.",
         variant: "destructive"
       })
     }
   }
 
-  const filteredOrders = getFilteredOrders()
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading orders...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -179,16 +134,34 @@ const Home = () => {
 
         {/* Orders Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredOrders.map((order) => (
+          {orders.map((order) => (
             <OrderCard
               key={order.id}
-              order={order}
+              order={{
+                id: order.id,
+                restaurant: { 
+                  name: order.restaurant_name, 
+                  icon: order.restaurant_icon 
+                },
+                customer: order.customer_profile?.full_name || 'Unknown',
+                items: order.items_description,
+                price: order.price,
+                tip: order.tip_amount,
+                distance: `${order.distance.toFixed(1)} km`,
+                location: `${order.pickup_location} to ${order.delivery_location}`,
+                timeAgo: new Date(order.created_at).toLocaleString('en-US', {
+                  hour: 'numeric',
+                  minute: 'numeric',
+                  hour12: true
+                }),
+                isFriend: order.is_friend
+              }}
               onAccept={handleAcceptOrder}
             />
           ))}
         </div>
 
-        {filteredOrders.length === 0 && (
+        {orders.length === 0 && !loading && (
           <div className="text-center py-12">
             <p className="text-muted-foreground">No orders found for the selected filter.</p>
           </div>
