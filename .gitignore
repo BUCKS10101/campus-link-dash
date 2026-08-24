@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Environment / secrets — never commit real credentials.
+# Covers .env plus every variant (.env.local, .env.staging.local,
+# .env.production.db.local, .env.development, ...). Only a committed
+# .env.example template is allowed through.
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
