@@ -47,45 +47,57 @@ describe('SignupSchema', () => {
 })
 
 describe('PostOrderSchema', () => {
+  // Matches the live schema: orders.requester_id (not customer_id),
+  // items/delivery_location as jsonb (not items_description/pickup_location
+  // as strings), distance_km (not distance). No price/restaurant_icon/
+  // completed_at - those columns don't exist live.
   const valid = {
-    customer_id: '11111111-1111-1111-1111-111111111111',
+    requester_id: '11111111-1111-1111-1111-111111111111',
     deliverer_id: null,
     restaurant_name: 'One Food',
-    restaurant_icon: '🍔',
-    items_description: '2x Chicken Burger + fries',
-    price: 0,
+    items: ['2x Chicken Burger', '1x Fries'],
     tip_amount: 30,
-    pickup_location: 'One Food',
-    delivery_location: "Men's Hostel K",
-    distance: 1.2,
+    delivery_location: { type: 'hostel' as const, label: "Men's Hostel K", hostelType: 'mens' as const, block: 'K' },
+    distance_km: 1.2,
     status: 'pending' as const,
-    completed_at: null,
   }
 
   it('accepts a valid order', () => {
     expect(PostOrderSchema.safeParse(valid).success).toBe(true)
   })
 
-  it('rejects a description shorter than 10 characters', () => {
-    expect(PostOrderSchema.safeParse({ ...valid, items_description: 'short' }).success).toBe(false)
+  it('rejects an empty items array', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, items: [] }).success).toBe(false)
+  })
+
+  it('rejects an items array with a blank line', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, items: [''] }).success).toBe(false)
   })
 
   it('rejects a tip below the ₹10 minimum', () => {
     expect(PostOrderSchema.safeParse({ ...valid, tip_amount: 5 }).success).toBe(false)
   })
 
-  it('rejects a missing delivery location', () => {
-    expect(PostOrderSchema.safeParse({ ...valid, delivery_location: '' }).success).toBe(false)
+  it('rejects a delivery_location missing a label', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, delivery_location: { type: 'campus', label: '' } }).success).toBe(false)
   })
 
-  it('rejects a non-uuid customer_id', () => {
-    expect(PostOrderSchema.safeParse({ ...valid, customer_id: 'not-a-uuid' }).success).toBe(false)
+  it('rejects a delivery_location that is a plain string (must be the jsonb shape)', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, delivery_location: "Men's Hostel K" }).success).toBe(false)
+  })
+
+  it('rejects a non-uuid requester_id', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, requester_id: 'not-a-uuid' }).success).toBe(false)
+  })
+
+  it('accepts a campus delivery location without hostel fields', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, delivery_location: { type: 'campus', label: 'TT Block' } }).success).toBe(true)
   })
 })
 
 describe('ProfileUpdateSchema', () => {
   it('accepts a partial update with just a name', () => {
-    expect(ProfileUpdateSchema.safeParse({ full_name: 'New Name' }).success).toBe(true)
+    expect(ProfileUpdateSchema.safeParse({ name: 'New Name' }).success).toBe(true)
   })
 
   it('accepts an empty update', () => {

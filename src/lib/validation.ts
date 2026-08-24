@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OrderItemsSchema, DeliveryLocationSchema } from './orderContent'
 
 // ---------- Auth ----------
 
@@ -29,29 +30,21 @@ export type SignupInput = z.infer<typeof SignupSchema>
 // ---------- Orders ----------
 
 export const PostOrderSchema = z.object({
-  customer_id: z.string().uuid(),
+  requester_id: z.string().uuid(),
   deliverer_id: z.null(),
   restaurant_name: z.string().trim().min(1, 'Select a restaurant').max(100),
-  restaurant_icon: z.string().trim().min(1).max(10),
-  items_description: z
-    .string()
-    .trim()
-    .min(10, 'Describe your order in at least 10 characters')
-    .max(500, 'Order description must be under 500 characters'),
-  price: z.number().min(0).max(10000),
+  items: OrderItemsSchema,
   tip_amount: z.number().min(10, 'Tip must be at least ₹10').max(1000, 'Tip must be under ₹1000'),
-  pickup_location: z.string().trim().min(1).max(200),
-  delivery_location: z.string().trim().min(1, 'Select a delivery location').max(200),
-  distance: z.number().min(0).max(50),
+  delivery_location: DeliveryLocationSchema,
+  distance_km: z.number().min(0).max(50).nullable(),
   status: z.literal('pending'),
-  completed_at: z.null(),
 })
 export type PostOrderInput = z.infer<typeof PostOrderSchema>
 
 // ---------- Profile ----------
 
 export const ProfileUpdateSchema = z.object({
-  full_name: z
+  name: z
     .string()
     .trim()
     .min(2, 'Full name must be at least 2 characters')

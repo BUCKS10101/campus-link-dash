@@ -49,6 +49,12 @@ failure is safe.
 Open Project → SQL Editor → New query in the Supabase dashboard and run each
 file in this directory **in filename order** (they are numbered):
 
+0. `20260824115900_baseline_schema.sql` — creates the four tables every
+   other migration assumes. Added 2026-08-25 after discovering the repo
+   could not stand up a fresh database at all (no migration created any
+   tables; production's were made outside this repo). Fully `if not
+   exists`-guarded, so it is a **no-op against production** and only does
+   real work on a fresh project.
 1. `20260824120000_rls_policies_and_indexes.sql`
 2. `20260824120100_order_status_integrity.sql`
 3. `20260824120200_foreign_keys.sql` — safe: every FK in it already exists
@@ -60,6 +66,13 @@ file in this directory **in filename order** (they are numbered):
    alone and doesn't block/roll back anything else. Re-run the orphan
    check first if meaningful time has passed since this was checked.
 5. `20260824120300_otp_verification.sql`
+6. `20260825090000_fix_otp_column_privileges.sql` — **required, not
+   optional.** A live privilege check on 2026-08-25 showed the column-level
+   revoke in file 5 above did not actually work (anon/authenticated could
+   both still `SELECT` `orders.otp`) - see that file's header for the root
+   cause (a column-level REVOKE can't override Supabase's default
+   table-level SELECT grant) and the fix (revoke the table-level grant,
+   re-grant column-level SELECT on everything except otp).
 
 The SQL editor runs a pasted script as one transaction by default, so if a
 file errors partway through, nothing from that file is left half-applied —
@@ -89,3 +102,10 @@ clean:
 - Try, from a second test account, to `select` another user's order or
   `update` an order you're not assigned to via the Supabase JS client / REST
   API directly — it should be rejected once RLS is actually enabled.
+- **Specifically re-check `otp` after applying file 6**: RLS policies
+  passing is not enough — privileges are a separate layer. Run
+  `select id, otp from orders limit 1;` via the anon key (no `Authorization`
+  header, or a plain unauthenticated REST call) and confirm it now returns
+  a permission-denied error instead of `200 []`. A `200` with an empty
+  array is not proof of protection — an empty table returns that either
+  way; only an actual permission error confirms the column is locked down.

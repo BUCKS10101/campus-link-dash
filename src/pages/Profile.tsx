@@ -3,7 +3,7 @@ import { Trophy, Star, Wallet, Users, Package, Clock, MapPin, Settings } from 'l
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -38,12 +38,12 @@ const EditProfileDialog = ({
 }: {
   fullName: string
   phone: string
-  onSave: (updates: { full_name: string; phone: string }) => Promise<void>
+  onSave: (updates: { name: string; phone: string }) => Promise<void>
 }) => {
   const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ full_name: fullName, phone })
+  const [form, setForm] = useState({ name: fullName, phone })
 
   const handleSave = async () => {
     setSaving(true)
@@ -63,7 +63,7 @@ const EditProfileDialog = ({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next) setForm({ full_name: fullName, phone }) }}>
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next) setForm({ name: fullName, phone }) }}>
       <DialogTrigger asChild>
         <Button variant="outline" className="w-full">Edit Profile</Button>
       </DialogTrigger>
@@ -76,8 +76,8 @@ const EditProfileDialog = ({
             <Label htmlFor="edit-full-name">Full Name</Label>
             <Input
               id="edit-full-name"
-              value={form.full_name}
-              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
             />
           </div>
           <div className="space-y-2">
@@ -118,8 +118,8 @@ const Profile = () => {
         <main className="container mx-auto px-4 py-6 pb-20 md:pb-6">
           <div className="max-w-6xl mx-auto space-y-6">
             <Skeleton className="h-32 w-full" />
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
             </div>
           </div>
         </main>
@@ -129,18 +129,20 @@ const Profile = () => {
   }
 
   const profile = user?.profile
-  const displayName = profile?.full_name || 'Your Profile'
+  const displayName = profile?.name || 'Your Profile'
   const displayPhone = profile?.phone ? `+91-${profile.phone}` : 'No phone on file'
   const avatarInitial = displayName.charAt(0).toUpperCase() || '?'
 
+  // profiles has no friend_count column (no friend-request feature exists
+  // yet - see the friendships RLS review), so that stat card is dropped
+  // rather than showing a fabricated count.
   const userStats = [
-    { icon: Package, label: 'Successful Deliveries', value: String(profile?.total_deliveries ?? 0), color: 'text-success' },
+    { icon: Package, label: 'Successful Deliveries', value: String(profile?.successful_deliveries ?? 0), color: 'text-success' },
     { icon: Star, label: 'Average Rating', value: profile?.rating != null ? `${profile.rating.toFixed(1)} ⭐` : 'No ratings yet', color: 'text-amber-500' },
     { icon: Wallet, label: 'Current Balance', value: `₹${profile?.balance ?? 0}`, color: 'text-primary' },
-    { icon: Users, label: 'Friend Network', value: `${profile?.friend_count ?? 0} connections`, color: 'text-accent' }
   ]
 
-  const handleSaveProfile = async (updates: { full_name: string; phone: string }) => {
+  const handleSaveProfile = async (updates: { name: string; phone: string }) => {
     await updateProfile(updates)
   }
 
@@ -155,7 +157,7 @@ const Profile = () => {
             <CardContent className="p-6">
               <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6">
                 <Avatar className="h-20 w-20">
-                  <AvatarImage src={profile?.avatar_url ?? undefined} alt={displayName} />
+                  {/* profiles has no avatar_url column - fallback initial only */}
                   <AvatarFallback className="bg-primary text-primary-foreground text-2xl">{avatarInitial}</AvatarFallback>
                 </Avatar>
 
@@ -163,7 +165,8 @@ const Profile = () => {
                   <h1 className="text-2xl font-bold">{displayName}</h1>
                   <p className="text-muted-foreground">{profile?.email || user?.user.email}</p>
                   <p className="text-sm text-muted-foreground">{displayPhone}</p>
-                  <Badge className="mt-2" variant="secondary">{profile?.is_deliverer ? 'Deliverer' : 'Active Member'}</Badge>
+                  {/* profiles has no is_deliverer column - anyone can deliver */}
+                  <Badge className="mt-2" variant="secondary">Active Member</Badge>
                 </div>
 
                 <Button className="btn-campus-primary">
@@ -174,7 +177,7 @@ const Profile = () => {
           </Card>
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {userStats.map((stat, index) => {
               const Icon = stat.icon
               return (
@@ -292,7 +295,7 @@ const Profile = () => {
 
                 <div className="pt-4 space-y-2">
                   <EditProfileDialog
-                    fullName={profile?.full_name || ''}
+                    fullName={profile?.name || ''}
                     phone={profile?.phone || ''}
                     onSave={handleSaveProfile}
                   />

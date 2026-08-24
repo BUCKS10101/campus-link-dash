@@ -1,147 +1,146 @@
+// Verified against the live database schema (information_schema.columns +
+// pg_constraint) during the Phase 1B schema-mismatch review - see
+// supabase/migrations/ for the RLS/constraint/FK/OTP migrations this type
+// must stay in sync with. This file mirrors the literal DB shape,
+// including real nullability; src/lib/database-types.ts is a pragmatic,
+// app-level simplification on top of it (same relationship the original
+// codebase already had between these two files).
+
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+
 export interface Database {
   public: {
     Tables: {
       profiles: {
         Row: {
           id: string
-          full_name: string | null
-          email: string | null
+          name: string
+          email: string
           phone: string | null
-          created_at: string
-          avatar_url: string | null
-          is_deliverer: boolean
+          hostel_block: string | null
+          hostel_type: 'mens' | 'ladies' | 'campus' | null
           rating: number | null
-          total_deliveries: number
-          balance: number
-          friend_count: number
+          successful_deliveries: number | null
+          balance: number | null
+          created_at: string | null
         }
         Insert: {
-          id: string
-          full_name?: string | null
-          email?: string | null
+          id?: string
+          name: string
+          email: string
           phone?: string | null
-          created_at?: string
-          avatar_url?: string | null
-          is_deliverer?: boolean
+          hostel_block?: string | null
+          hostel_type?: 'mens' | 'ladies' | 'campus' | null
           rating?: number | null
-          total_deliveries?: number
-          balance?: number
-          friend_count?: number
+          successful_deliveries?: number | null
+          balance?: number | null
+          created_at?: string | null
         }
         Update: {
           id?: string
-          full_name?: string | null
-          email?: string | null
+          name?: string
+          email?: string
           phone?: string | null
-          created_at?: string
-          avatar_url?: string | null
-          is_deliverer?: boolean
+          hostel_block?: string | null
+          hostel_type?: 'mens' | 'ladies' | 'campus' | null
           rating?: number | null
-          total_deliveries?: number
-          balance?: number
-          friend_count?: number
+          successful_deliveries?: number | null
+          balance?: number | null
+          created_at?: string | null
         }
       }
       orders: {
         Row: {
           id: string
-          customer_id: string
+          requester_id: string | null
           deliverer_id: string | null
           restaurant_name: string
-          restaurant_icon: string
-          items_description: string
-          price: number
-          tip_amount: number
-          pickup_location: string
-          delivery_location: string
-          distance: number
-          status: 'pending' | 'accepted' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled'
-          created_at: string
-          updated_at: string
-          completed_at: string | null
-          otp_code: string | null
+          items: Json
+          tip_amount: number | null
+          delivery_location: Json
+          status: 'pending' | 'accepted' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled' | null
+          /**
+           * Column-level SELECT is revoked for anon/authenticated (see
+           * supabase/migrations/20260824120300_otp_verification.sql). Never
+           * select this directly - use the get_my_order_otp()/
+           * verify_delivery_otp() RPCs. Present here only so Insert
+           * payloads (which still need to write it) type-check.
+           */
+          otp: string | null
+          distance_km: number | null
+          created_at: string | null
         }
         Insert: {
           id?: string
-          customer_id: string
+          requester_id?: string | null
           deliverer_id?: string | null
           restaurant_name: string
-          restaurant_icon: string
-          items_description: string
-          price: number
-          tip_amount: number
-          pickup_location: string
-          delivery_location: string
-          distance: number
-          status?: 'pending' | 'accepted' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled'
-          created_at?: string
-          updated_at?: string
-          completed_at?: string | null
-          otp_code?: string | null
+          items: Json
+          tip_amount?: number | null
+          delivery_location: Json
+          status?: 'pending' | 'accepted' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled' | null
+          otp?: string | null
+          distance_km?: number | null
+          created_at?: string | null
         }
         Update: {
           id?: string
-          customer_id?: string
+          requester_id?: string | null
           deliverer_id?: string | null
           restaurant_name?: string
-          restaurant_icon?: string
-          items_description?: string
-          price?: number
-          tip_amount?: number
-          pickup_location?: string
-          delivery_location?: string
-          distance?: number
-          status?: 'pending' | 'accepted' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled'
-          created_at?: string
-          updated_at?: string
-          completed_at?: string | null
-          otp_code?: string | null
+          items?: Json
+          tip_amount?: number | null
+          delivery_location?: Json
+          status?: 'pending' | 'accepted' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled' | null
+          otp?: string | null
+          distance_km?: number | null
+          created_at?: string | null
         }
       }
       chat_messages: {
         Row: {
           id: string
-          order_id: string
-          sender_id: string
-          sender_type: 'customer' | 'deliverer'
+          order_id: string | null
+          sender_id: string | null
           message: string
-          created_at: string
+          created_at: string | null
         }
         Insert: {
           id?: string
-          order_id: string
-          sender_id: string
-          sender_type: 'customer' | 'deliverer'
+          order_id?: string | null
+          sender_id?: string | null
           message: string
-          created_at?: string
+          created_at?: string | null
         }
         Update: {
           id?: string
-          order_id?: string
-          sender_id?: string
-          sender_type?: 'customer' | 'deliverer'
+          order_id?: string | null
+          sender_id?: string | null
           message?: string
-          created_at?: string
+          created_at?: string | null
         }
       }
       friendships: {
         Row: {
           id: string
-          user_id: string
-          friend_id: string
-          created_at: string
+          requester_id: string | null
+          addressee_id: string | null
+          status: string | null
+          created_at: string | null
         }
         Insert: {
           id?: string
-          user_id: string
-          friend_id: string
-          created_at?: string
+          requester_id?: string | null
+          addressee_id?: string | null
+          status?: string | null
+          created_at?: string | null
         }
         Update: {
           id?: string
-          user_id?: string
-          friend_id?: string
-          created_at?: string
+          requester_id?: string | null
+          addressee_id?: string | null
+          status?: string | null
+          created_at?: string | null
         }
       }
     }
@@ -149,7 +148,14 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_my_order_otp: {
+        Args: { p_order_id: string }
+        Returns: string
+      }
+      verify_delivery_otp: {
+        Args: { p_order_id: string; p_code: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never

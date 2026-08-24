@@ -35,7 +35,9 @@ describe('useChat', () => {
   })
 
   it('loads messages for an authorized order', async () => {
-    const messages = [{ id: '1', order_id: 'order-1', sender_id: 'u1', sender_type: 'customer', message: 'hi', created_at: new Date().toISOString() }]
+    // chat_messages has no sender_type column live - bubble alignment is
+    // derived from sender_id in MyOrders.tsx, not a stored role.
+    const messages = [{ id: '1', order_id: 'order-1', sender_id: 'u1', message: 'hi', created_at: new Date().toISOString() }]
     supabaseMock.from.mockReturnValue(createQueryBuilder({ data: messages, error: null }))
 
     const { result } = renderHook(() => useChat('order-1'))
@@ -44,6 +46,22 @@ describe('useChat', () => {
 
     expect(result.current.error).toBeNull()
     expect(result.current.messages).toEqual(messages)
+  })
+
+  it('sendMessage inserts sender_id/message only, no sender_type column', async () => {
+    const builder = createQueryBuilder({ data: [{ id: '2' }], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useChat('order-1'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    await act(async () => {
+      await result.current.sendMessage('On my way!', 'u1')
+    })
+
+    const inserted = vi.mocked(builder.insert).mock.calls[0][0][0]
+    expect(inserted).toEqual({ order_id: 'order-1', sender_id: 'u1', message: 'On my way!' })
+    expect(inserted).not.toHaveProperty('sender_type')
   })
 
   it('sendMessage rejects an empty message before hitting the DB', async () => {
@@ -56,7 +74,7 @@ describe('useChat', () => {
 
     await expect(
       act(async () => {
-        await result.current.sendMessage('   ', 'u1', 'customer')
+        await result.current.sendMessage('   ', 'u1')
       })
     ).rejects.toThrow(/cannot be empty/i)
 
@@ -71,7 +89,7 @@ describe('useChat', () => {
 
     await expect(
       act(async () => {
-        await result.current.sendMessage('a'.repeat(1001), 'u1', 'customer')
+        await result.current.sendMessage('a'.repeat(1001), 'u1')
       })
     ).rejects.toThrow(/under 1000 characters/i)
   })

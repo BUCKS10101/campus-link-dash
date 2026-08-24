@@ -14,6 +14,8 @@ import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/useAuth'
 import { useOrders } from '@/hooks/useOrders'
 import { getErrorMessage } from '@/lib/utils'
+import { parseOrderItemsInput } from '@/lib/orderContent'
+import type { DeliveryLocation } from '@/lib/orderContent'
 
 const PostRequest = () => {
   const navigate = useNavigate()
@@ -87,25 +89,33 @@ const PostRequest = () => {
       const restaurant = restaurants.find(r => r.id === formData.restaurant)
       if (!restaurant) throw new Error('Please select a restaurant')
 
-      const deliveryLocation = formData.locationType === 'hostels'
-        ? `${formData.hostelType === 'mens' ? "Men's" : "Ladies"} Hostel ${formData.block}`
-        : formData.campusLocation
+      // orders.delivery_location is jsonb - see src/lib/orderContent.ts for
+      // why this shape (mirrors what this form already collects). There's
+      // no separate pickup_location column on the live table; restaurant_name
+      // (a real column) already identifies where to pick up.
+      const deliveryLocation: DeliveryLocation = formData.locationType === 'hostels'
+        ? {
+            type: 'hostel',
+            label: `${formData.hostelType === 'mens' ? "Men's" : "Ladies"} Hostel ${formData.block}`,
+            hostelType: formData.hostelType as 'mens' | 'ladies',
+            block: formData.block,
+          }
+        : {
+            type: 'campus',
+            label: formData.campusLocation,
+          }
 
-      if (!deliveryLocation) throw new Error('Please select a delivery location')
+      if (!deliveryLocation.label) throw new Error('Please select a delivery location')
 
       await createOrder({
-        customer_id: user.user.id,
+        requester_id: user.user.id,
         deliverer_id: null,
         restaurant_name: restaurant.name,
-        restaurant_icon: restaurant.icon,
-        items_description: formData.orderDescription,
-        price: 0,
+        items: parseOrderItemsInput(formData.orderDescription),
         tip_amount: formData.tip[0],
-        pickup_location: restaurant.name,
         delivery_location: deliveryLocation,
-        distance,
+        distance_km: distance,
         status: 'pending',
-        completed_at: null,
       })
 
       toast({

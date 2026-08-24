@@ -1,55 +1,67 @@
-// Simplified types to avoid complex Supabase type inference issues
+// Simplified types to avoid complex Supabase type inference issues.
+// Verified against the live database schema during the Phase 1B
+// schema-mismatch review - see src/types/database.ts for the literal
+// (fully-nullable) mirror this simplifies, and supabase/migrations/ for
+// the constraints these shapes assume (order-status CHECK, OTP RPCs).
+import type { OrderItems, DeliveryLocation } from './orderContent'
+
 export interface Profile {
   id: string
-  full_name: string | null
-  email: string | null
+  name: string
+  email: string
   phone: string | null
-  created_at: string
-  avatar_url: string | null
-  is_deliverer: boolean
+  hostel_block: string | null
+  hostel_type: 'mens' | 'ladies' | 'campus' | null
   rating: number | null
-  total_deliveries: number
+  successful_deliveries: number
   balance: number
-  friend_count: number
+  created_at: string
 }
 
 export interface Order {
   id: string
-  customer_id: string
+  requester_id: string
   deliverer_id: string | null
   restaurant_name: string
-  restaurant_icon: string
-  items_description: string
-  price: number
+  items: OrderItems
   tip_amount: number
-  pickup_location: string
-  delivery_location: string
-  distance: number
+  delivery_location: DeliveryLocation
   status: 'pending' | 'accepted' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'cancelled'
+  distance_km: number | null
   created_at: string
-  updated_at: string
-  completed_at: string | null
-  otp_code: string | null
+  /**
+   * Real column, but never selectable directly (column-level SELECT is
+   * revoked - see supabase/migrations/20260824120300_otp_verification.sql).
+   * Only present here so an Insert payload type-checks; use
+   * get_my_order_otp()/verify_delivery_otp() to read/verify it.
+   */
+  otp: string | null
 }
 
 export interface ChatMessage {
   id: string
   order_id: string
   sender_id: string
-  sender_type: 'customer' | 'deliverer'
   message: string
   created_at: string
 }
 
+/**
+ * Live schema is a request/accept model (requester_id, addressee_id,
+ * status), but no friend-request/accept/decline/unfriend UI or handler
+ * exists anywhere in the app - see the friendships RLS review. `status`
+ * is typed loosely (no confirmed vocabulary) rather than as a union.
+ */
 export interface Friendship {
   id: string
-  user_id: string
-  friend_id: string
+  requester_id: string
+  addressee_id: string
+  status: string
   created_at: string
 }
 
 export interface OrderWithProfiles extends Order {
-  customer_profile: Profile
+  requester_profile: Profile
   deliverer_profile: Profile | null
   is_friend?: boolean
 }

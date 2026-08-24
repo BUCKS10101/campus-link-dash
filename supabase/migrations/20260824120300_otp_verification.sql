@@ -39,6 +39,15 @@
 -- STATUS: prepared in the repo, NOT verified applied to any live Supabase
 -- project by this change.
 
+-- !! INEFFECTIVE - DO NOT RELY ON THIS LINE. !!
+-- A column-level REVOKE cannot override the table-level GRANT ALL that
+-- Supabase applies to every public table, so this silently does nothing.
+-- Confirmed live on 2026-08-25 (anon and authenticated could both still
+-- SELECT orders.otp after this migration ran without error).
+-- Superseded by 20260825090000_fix_otp_column_privileges.sql, which does
+-- it correctly (table-level revoke, then column-level re-grant).
+-- Left in place unedited because this migration has already been applied;
+-- rewriting applied migrations is worse than superseding them.
 revoke select (otp) on orders from anon, authenticated;
 
 create or replace function public.get_my_order_otp(p_order_id uuid)
