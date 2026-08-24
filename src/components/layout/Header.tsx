@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Search, Bell, MapPin, ChevronDown } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,9 +76,9 @@ const Header = () => {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src={user?.profile?.avatar_url || ''} alt="User" />
+                  {/* profiles has no avatar_url column - fallback initial only */}
                   <AvatarFallback className="bg-primary text-primary-foreground">
-                    {user?.profile?.full_name?.charAt(0) || user?.user?.email?.charAt(0) || 'U'}
+                    {user?.profile?.name?.charAt(0) || user?.user?.email?.charAt(0) || 'U'}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -86,7 +86,7 @@ const Header = () => {
             <DropdownMenuContent className="w-56" align="end" forceMount>
               <div className="flex items-center justify-start gap-2 p-2">
                 <div className="flex flex-col space-y-1 leading-none">
-                  <p className="font-medium">{user?.profile?.full_name || 'User'}</p>
+                  <p className="font-medium">{user?.profile?.name || 'User'}</p>
                   <p className="w-[200px] truncate text-sm text-muted-foreground">
                     {user?.profile?.phone || user?.user?.email}
                   </p>

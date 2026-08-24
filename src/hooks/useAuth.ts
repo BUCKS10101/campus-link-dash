@@ -79,17 +79,18 @@ export const useAuth = () => {
 
     if (error) throw error
 
-    // Create profile
+    // Create profile. is_deliverer/total_deliveries/friend_count/avatar_url
+    // don't exist on the live profiles table - anyone can be a deliverer
+    // for someone else's order regardless of any flag (matches the orders
+    // RLS policies, which never check such a flag either). rating/
+    // successful_deliveries/balance all have DB defaults (0/0.0/0.0), so
+    // they're left for Postgres to set rather than duplicated here.
     if (data.user) {
       const { error: profileError } = await supabase.from('profiles').insert([{
         id: data.user.id,
-        full_name: validated.fullName,
+        name: validated.fullName,
         email: validated.email,
         phone: validated.phone,
-        is_deliverer: false,
-        total_deliveries: 0,
-        balance: 0,
-        friend_count: 0,
       }] as any)
 
       if (profileError) {

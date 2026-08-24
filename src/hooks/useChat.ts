@@ -49,7 +49,10 @@ export const useChat = (orderId: string) => {
     }
   }
 
-  const sendMessage = async (message: string, senderId: string, senderType: 'customer' | 'deliverer') => {
+  // chat_messages has no sender_type column - message-bubble alignment
+  // (who's "me" vs "them") is derived by comparing sender_id to the
+  // viewer's own id in MyOrders.tsx, not from a stored role.
+  const sendMessage = async (message: string, senderId: string) => {
     const validated = validateOrThrow(ChatMessageSchema, { message })
 
     try {
@@ -58,7 +61,6 @@ export const useChat = (orderId: string) => {
         .insert([{
           order_id: orderId,
           sender_id: senderId,
-          sender_type: senderType,
           message: validated.message,
         }] as any)
         .select(`

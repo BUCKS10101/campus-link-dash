@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { useOrders } from '@/hooks/useOrders'
 import { useToast } from '@/hooks/use-toast'
 import { useNavigate } from 'react-router-dom'
+import { getRestaurantIcon, formatOrderItems, formatDeliveryLocation } from '@/lib/orderContent'
 
 const Home = () => {
   const { toast } = useToast()
@@ -67,7 +68,7 @@ const Home = () => {
   const filters = [
     { key: 'all', label: 'All Orders', count: orders.length },
     { key: 'friends', label: 'Friends', count: orders.filter(o => o.is_friend).length },
-    { key: 'nearby', label: 'Nearby', count: orders.filter(o => o.distance < 1).length },
+    { key: 'nearby', label: 'Nearby', count: orders.filter(o => o.distance_km != null && o.distance_km < 1).length },
     { key: 'high-tips', label: 'High Tips', count: orders.filter(o => o.tip_amount >= 40).length }
   ]
 
@@ -149,16 +150,15 @@ const Home = () => {
               key={order.id}
               order={{
                 id: order.id,
-                restaurant: { 
-                  name: order.restaurant_name, 
-                  icon: order.restaurant_icon 
+                restaurant: {
+                  name: order.restaurant_name,
+                  icon: getRestaurantIcon(order.restaurant_name),
                 },
-                customer: order.customer_profile?.full_name || 'Unknown',
-                items: order.items_description,
-                price: order.price,
+                customer: order.requester_profile?.name || 'Unknown',
+                items: formatOrderItems(order.items),
                 tip: order.tip_amount,
-                distance: `${order.distance.toFixed(1)} km`,
-                location: `${order.pickup_location} to ${order.delivery_location}`,
+                distance: order.distance_km != null ? `${order.distance_km.toFixed(1)} km` : 'Distance unknown',
+                location: formatDeliveryLocation(order.delivery_location),
                 timeAgo: new Date(order.created_at).toLocaleString('en-US', {
                   hour: 'numeric',
                   minute: 'numeric',

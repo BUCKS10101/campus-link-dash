@@ -13,7 +13,6 @@ interface OrderCardProps {
     }
     customer: string
     items: string
-    price: number
     tip: number
     distance: string
     location: string
@@ -47,8 +46,7 @@ const OrderCard: React.FC<OrderCardProps> = ({ order, onAccept }) => {
         {/* Order Details */}
         <div className="space-y-2 mb-4">
           <p className="text-sm font-medium">{order.items}</p>
-          <div className="flex items-center justify-between">
-            <span className="font-semibold">₹{order.price}</span>
+          <div className="flex items-center justify-end">
             <Badge className="tip-badge">
               ₹{order.tip} tip
             </Badge>

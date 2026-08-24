@@ -16,6 +16,7 @@ import { useOrders } from '@/hooks/useOrders'
 import { useChat } from '@/hooks/useChat'
 import { useToast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/utils'
+import { getRestaurantIcon, formatOrderItems, formatDeliveryLocation } from '@/lib/orderContent'
 import type { OrderWithProfiles, Order } from '@/lib/database-types'
 
 const STATUS_STEPS: { status: Order['status']; label: string; icon: typeof Clock }[] = [
@@ -195,7 +196,7 @@ const OtpPanel = ({
   return null
 }
 
-const ChatPanel = ({ orderId, senderId, senderType }: { orderId: string; senderId: string; senderType: 'customer' | 'deliverer' }) => {
+const ChatPanel = ({ orderId, senderId }: { orderId: string; senderId: string }) => {
   const { messages, loading, error, sendMessage } = useChat(orderId)
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
@@ -204,7 +205,7 @@ const ChatPanel = ({ orderId, senderId, senderType }: { orderId: string; senderI
     if (!message.trim() || sending) return
     setSending(true)
     try {
-      await sendMessage(message, senderId, senderType)
+      await sendMessage(message, senderId)
       setMessage('')
     } catch {
       // swallow - the input keeps the draft so the user can retry
@@ -337,10 +338,10 @@ const MyOrders = () => {
     )
   }
 
-  const isCustomer = activeOrder ? activeOrder.customer_id === user.user.id : false
+  const isCustomer = activeOrder ? activeOrder.requester_id === user.user.id : false
   const isDeliverer = activeOrder ? activeOrder.deliverer_id === user.user.id : false
   const counterpartyProfile = activeOrder
-    ? (isCustomer ? activeOrder.deliverer_profile : activeOrder.customer_profile)
+    ? (isCustomer ? activeOrder.deliverer_profile : activeOrder.requester_profile)
     : null
   const nextAction = activeOrder ? NEXT_DELIVERER_ACTION[activeOrder.status] : undefined
 
@@ -363,15 +364,15 @@ const MyOrders = () => {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
-          <span className="text-2xl">{activeOrder.restaurant_icon}</span>
+          <span className="text-2xl">{getRestaurantIcon(activeOrder.restaurant_name)}</span>
           <span>{activeOrder.restaurant_name}</span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
-          <p className="font-medium">{activeOrder.items_description}</p>
-          <div className="flex items-center justify-between mt-2">
-            <span className="text-lg font-semibold">₹{activeOrder.price}</span>
+          <p className="font-medium">{formatOrderItems(activeOrder.items)}</p>
+          <p className="text-xs text-muted-foreground mt-1">{formatDeliveryLocation(activeOrder.delivery_location)}</p>
+          <div className="flex items-center justify-end mt-2">
             <Badge className="tip-badge">₹{activeOrder.tip_amount} tip</Badge>
           </div>
         </div>
@@ -380,11 +381,11 @@ const MyOrders = () => {
           <div className="flex items-center space-x-2">
             <Avatar className="h-8 w-8">
               <AvatarFallback className="bg-primary text-primary-foreground">
-                {(counterpartyProfile.full_name || '?').charAt(0)}
+                {(counterpartyProfile.name || '?').charAt(0)}
               </AvatarFallback>
             </Avatar>
             <div>
-              <p className="font-medium">{counterpartyProfile.full_name || 'Unknown'}</p>
+              <p className="font-medium">{counterpartyProfile.name || 'Unknown'}</p>
               <p className="text-sm text-muted-foreground">
                 {isCustomer ? counterpartyProfile.phone || 'No phone shared' : counterpartyProfile.phone}
               </p>
@@ -431,7 +432,7 @@ const MyOrders = () => {
             {pastOrders.map((order) => (
               <div key={order.id} className="flex items-center justify-between border-b pb-2 last:border-0">
                 <div className="flex items-center space-x-2">
-                  <span className="text-lg">{order.restaurant_icon}</span>
+                  <span className="text-lg">{getRestaurantIcon(order.restaurant_name)}</span>
                   <div>
                     <p className="font-medium text-sm">{order.restaurant_name}</p>
                     <p className="text-xs text-muted-foreground">
@@ -467,7 +468,6 @@ const MyOrders = () => {
               <ChatPanel
                 orderId={activeOrder.id}
                 senderId={user.user.id}
-                senderType={isCustomer ? 'customer' : 'deliverer'}
               />
             ) : (
               <Card className="h-fit">
@@ -496,7 +496,6 @@ const MyOrders = () => {
                   <ChatPanel
                     orderId={activeOrder.id}
                     senderId={user.user.id}
-                    senderType={isCustomer ? 'customer' : 'deliverer'}
                   />
                 ) : (
                   <Card>

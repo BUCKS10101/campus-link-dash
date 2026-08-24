@@ -17,6 +17,110 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+describe('fetchOrders column safety', () => {
+  it('selects only valid live columns and never requests otp', async () => {
+    const builder = createQueryBuilder({ data: [], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.fetchOrders()
+    })
+
+    const selectArg = builder.select.mock.calls[0][0] as string
+    expect(selectArg).toMatch(/requester_id/)
+    expect(selectArg).toMatch(/deliverer_id/)
+    expect(selectArg).toMatch(/distance_km/)
+    expect(selectArg).toMatch(/orders_requester_id_fkey/)
+    expect(selectArg).not.toMatch(/\botp\b/)
+    expect(selectArg).not.toMatch(/customer_id/)
+    expect(selectArg).not.toMatch(/otp_code/)
+    expect(selectArg).not.toMatch(/\bprice\b/)
+    expect(selectArg).not.toMatch(/pickup_location/)
+    expect(selectArg).not.toMatch(/restaurant_icon/)
+    expect(selectArg).not.toMatch(/items_description/)
+    expect(selectArg).not.toMatch(/\bdistance\b(?!_km)/)
+  })
+
+  it('uses requester_id/addressee_id (not user_id/friend_id) for the friendsOnly lookup', async () => {
+    const ordersBuilder = createQueryBuilder({ data: [], error: null })
+    const friendshipsBuilder = createQueryBuilder({ data: [], error: null })
+    supabaseMock.from.mockImplementation((table: string) =>
+      table === 'friendships' ? friendshipsBuilder : ordersBuilder
+    )
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.fetchOrders({ friendsOnly: true, viewerId: 'viewer-1' })
+    })
+
+    expect(friendshipsBuilder.select).toHaveBeenCalledWith('addressee_id')
+    expect(friendshipsBuilder.eq).toHaveBeenCalledWith('requester_id', 'viewer-1')
+  })
+})
+
+describe('createOrder', () => {
+  it('inserts using the live column names and rejects the old ones', async () => {
+    const builder = createQueryBuilder({ data: [{ id: 'order-1' }], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+
+    await act(async () => {
+      await result.current.createOrder({
+        requester_id: '11111111-1111-1111-1111-111111111111',
+        deliverer_id: null,
+        restaurant_name: 'One Food',
+        items: ['2x Burger'],
+        tip_amount: 30,
+        delivery_location: { type: 'campus', label: 'TT Block' },
+        distance_km: 1.2,
+        status: 'pending',
+      })
+    })
+
+    expect(builder.insert).toHaveBeenCalledTimes(1)
+    const inserted = vi.mocked(builder.insert).mock.calls[0][0][0]
+
+    expect(inserted).toMatchObject({
+      requester_id: '11111111-1111-1111-1111-111111111111',
+      restaurant_name: 'One Food',
+      items: ['2x Burger'],
+      delivery_location: { type: 'campus', label: 'TT Block' },
+    })
+    // otp is generated client-side at creation time (no DB default) - only
+    // its SELECT is locked down, not its INSERT.
+    expect(inserted.otp).toMatch(/^\d{6}$/)
+    expect(inserted).not.toHaveProperty('customer_id')
+    expect(inserted).not.toHaveProperty('otp_code')
+    expect(inserted).not.toHaveProperty('price')
+    expect(inserted).not.toHaveProperty('pickup_location')
+    expect(inserted).not.toHaveProperty('restaurant_icon')
+    expect(inserted).not.toHaveProperty('items_description')
+  })
+
+  it('rejects invalid order data before ever calling the DB (e.g. empty items)', async () => {
+    const { result } = renderHook(() => useOrders())
+
+    await expect(
+      act(async () => {
+        await result.current.createOrder({
+          requester_id: '11111111-1111-1111-1111-111111111111',
+          deliverer_id: null,
+          restaurant_name: 'One Food',
+          items: [],
+          tip_amount: 30,
+          delivery_location: { type: 'campus', label: 'TT Block' },
+          distance_km: 1.2,
+          status: 'pending',
+        })
+      })
+    ).rejects.toThrow()
+
+    expect(supabaseMock.from).not.toHaveBeenCalled()
+  })
+})
+
 describe('acceptOrder', () => {
   it('rejects when the order was already accepted by someone else (or is your own order)', async () => {
     supabaseMock.from.mockReturnValue(
@@ -30,6 +134,18 @@ describe('acceptOrder', () => {
         await result.current.acceptOrder('order-1', 'deliverer-1')
       })
     ).rejects.toThrow(/already accepted|your own order/i)
+  })
+
+  it('scopes the self-accept guard to requester_id, not customer_id', async () => {
+    const builder = createQueryBuilder({ data: { id: 'order-1' }, error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.acceptOrder('order-1', 'deliverer-1')
+    })
+
+    expect(builder.neq).toHaveBeenCalledWith('requester_id', 'deliverer-1')
   })
 
   it('returns the updated order on success', async () => {
