@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { ChatMessageWithProfile } from '@/lib/database-types'
+import { ChatMessageSchema, validateOrThrow } from '@/lib/validation'
+import { getErrorMessage } from '@/lib/utils'
 
 export const useChat = (orderId: string) => {
   const [messages, setMessages] = useState<ChatMessageWithProfile[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!orderId) return
@@ -19,6 +22,8 @@ export const useChat = (orderId: string) => {
 
   const fetchMessages = async () => {
     try {
+      setLoading(true)
+      setError(null)
       const { data, error } = await supabase
         .from('chat_messages')
         .select(`
@@ -30,14 +35,23 @@ export const useChat = (orderId: string) => {
 
       if (error) throw error
       setMessages(data || [])
-    } catch (error) {
-      console.error('Error fetching messages:', error)
+    } catch (err) {
+      // RLS returns an empty result rather than an error for rows you're
+      // not allowed to see, but a genuinely bad/unauthorized orderId (e.g.
+      // one that fails the chat_select_participant policy entirely) still
+      // surfaces here as a fetch error - report it instead of silently
+      // showing an empty chat.
+      const message = getErrorMessage(err, 'Failed to load messages')
+      console.error('Error fetching messages:', err)
+      setError(message)
     } finally {
       setLoading(false)
     }
   }
 
   const sendMessage = async (message: string, senderId: string, senderType: 'customer' | 'deliverer') => {
+    const validated = validateOrThrow(ChatMessageSchema, { message })
+
     try {
       const { data, error } = await supabase
         .from('chat_messages')
@@ -45,7 +59,7 @@ export const useChat = (orderId: string) => {
           order_id: orderId,
           sender_id: senderId,
           sender_type: senderType,
-          message,
+          message: validated.message,
         }] as any)
         .select(`
           *,
@@ -97,6 +111,7 @@ export const useChat = (orderId: string) => {
   return {
     messages,
     loading,
+    error,
     sendMessage,
     refetch: fetchMessages,
   }

@@ -1,4 +1,12 @@
 -- Campus Link: Row-Level Security + indexes
+--
+-- SUPERSEDED as of Phase 1B: this file is kept for history only. The
+-- authoritative, versioned source is now supabase/migrations/ - see
+-- supabase/migrations/README.md for how to apply it. Do not run this file
+-- against a project that has already run the migrations (it predates the
+-- foreign-key, order-status-transition, and OTP-verification migrations
+-- and would leave those gaps unpatched).
+--
 -- Run this once in the Supabase SQL editor (Project > SQL Editor > New query).
 -- Nothing in the app talks to the DB with elevated privileges, so without
 -- these policies every table is fully readable/writable by any signed-in

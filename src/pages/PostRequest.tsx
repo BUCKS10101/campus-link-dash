@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/useAuth'
 import { useOrders } from '@/hooks/useOrders'
+import { getErrorMessage } from '@/lib/utils'
 
 const PostRequest = () => {
   const navigate = useNavigate()
@@ -116,7 +117,7 @@ const PostRequest = () => {
     } catch (error) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to post request. Please try again.",
+        description: getErrorMessage(error, "Failed to post request. Please try again."),
         variant: "destructive"
       })
     } finally {
