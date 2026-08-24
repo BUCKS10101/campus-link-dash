@@ -30,7 +30,7 @@ const Home = () => {
         friendsOnly: activeFilter === 'friends',
         nearby: activeFilter === 'nearby',
         highTips: activeFilter === 'high-tips',
-        userId: user.user.id
+        viewerId: user.user.id
       })
 
       // Subscribe to real-time updates
@@ -42,7 +42,7 @@ const Home = () => {
           friendsOnly: activeFilter === 'friends',
           nearby: activeFilter === 'nearby',
           highTips: activeFilter === 'high-tips',
-          userId: user.user.id
+          viewerId: user.user.id
         })
       })
 
@@ -57,7 +57,7 @@ const Home = () => {
         friendsOnly: activeFilter === 'friends',
         nearby: activeFilter === 'nearby',
         highTips: activeFilter === 'high-tips',
-        userId: user.user.id
+        viewerId: user.user.id
       })
     }
   }, [activeFilter, user])

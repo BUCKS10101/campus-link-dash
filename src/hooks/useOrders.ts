@@ -11,7 +11,10 @@ export const useOrders = () => {
     friendsOnly?: boolean
     nearby?: boolean
     highTips?: boolean
-    userId?: string
+    /** current viewer's id - only used to resolve their friends list for friendsOnly */
+    viewerId?: string
+    /** scope results to orders THIS user posted/is delivering, instead of the public feed */
+    mine?: { as: 'customer' | 'deliverer'; userId: string }
   }) => {
     try {
       setLoading(true)
@@ -36,10 +39,12 @@ export const useOrders = () => {
         query = query.gte('tip_amount', 40)
       }
 
-      if (filters?.userId) {
-        query = query.eq('customer_id', filters.userId)
-      } else {
-        // For home feed, only show pending orders
+      if (filters?.mine) {
+        // "My orders" view: scoped to what this user posted or is delivering.
+        query = query.eq(filters.mine.as === 'customer' ? 'customer_id' : 'deliverer_id', filters.mine.userId)
+      } else if (!filters?.status || filters.status === 'all') {
+        // Public browse feed: only show orders still open for pickup unless
+        // the caller explicitly asked for a different status.
         query = query.eq('status', 'pending')
       }
 
@@ -48,15 +53,15 @@ export const useOrders = () => {
       if (error) throw error
 
         // Add friend status if needed
-        if (filters?.friendsOnly && filters?.userId) {
+        if (filters?.friendsOnly && filters?.viewerId) {
           const { data: friendships } = await supabase
             .from('friendships')
             .select('friend_id')
-            .eq('user_id', filters.userId)
+            .eq('user_id', filters.viewerId)
 
           const friendIds = friendships?.map((f: any) => f.friend_id) || []
-          
-          const friendOrders = data?.filter((order: any) => 
+
+          const friendOrders = data?.filter((order: any) =>
             friendIds.includes(order.customer_id)
           ).map((order: any) => ({ ...order, is_friend: true })) || []
 
@@ -85,6 +90,9 @@ export const useOrders = () => {
   }
 
   const acceptOrder = async (orderId: string, delivererId: string) => {
+    // .eq('status', 'pending') makes this an atomic compare-and-swap:
+    // if another deliverer already accepted the order, zero rows match
+    // and this update is a no-op instead of overwriting their claim.
     const { data, error } = await (supabase as any)
       .from('orders')
       .update({
@@ -93,14 +101,20 @@ export const useOrders = () => {
         updated_at: new Date().toISOString(),
       })
       .eq('id', orderId)
+      .eq('status', 'pending')
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      if (error.code === 'PGRST116') {
+        throw new Error('This order was already accepted by someone else')
+      }
+      throw error
+    }
     return data
   }
 
-  const updateOrderStatus = async (orderId: string, status: Order['status']) => {
+  const updateOrderStatus = async (orderId: string, status: Order['status'], delivererId: string) => {
     const updates: Partial<Order> = {
       status,
       updated_at: new Date().toISOString(),
@@ -110,14 +124,20 @@ export const useOrders = () => {
       updates.completed_at = new Date().toISOString()
     }
 
+    // Scoping to deliverer_id prevents a user from updating an order
+    // they were never assigned to.
     const { data, error } = await (supabase as any)
       .from('orders')
       .update(updates)
       .eq('id', orderId)
+      .eq('deliverer_id', delivererId)
       .select()
 
     if (error) throw error
-    return data?.[0]
+    if (!data || data.length === 0) {
+      throw new Error('Order not found or you are not the assigned deliverer')
+    }
+    return data[0]
   }
 
   const subscribeToOrders = (callback: (payload: any) => void) => {

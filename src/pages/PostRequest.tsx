@@ -11,11 +11,14 @@ import MobileNav from '@/components/layout/MobileNav'
 import SupportChat from '@/components/support/SupportChat'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '@/hooks/use-toast'
-import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/hooks/useAuth'
+import { useOrders } from '@/hooks/useOrders'
 
 const PostRequest = () => {
   const navigate = useNavigate()
   const { toast } = useToast()
+  const { user } = useAuth()
+  const { createOrder } = useOrders()
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
   
@@ -45,16 +48,14 @@ const PostRequest = () => {
     'Central Library', 'SMV', 'Academic Block'
   ]
 
-  const calculateDistance = () => {
-    // Mock distance calculation
-    return Math.random() * 2 + 0.5 // 0.5 to 2.5 km
-  }
-
   const calculateSuggestedTip = (distance: number) => {
     return Math.round(distance * 20) // ₹20 per km as base
   }
 
-  const distance = calculateDistance()
+  // Computed once per mount via useState initializer, not on every render -
+  // Math.random() in the render body would reshuffle the distance (and thus
+  // the tip shown to the user) on every re-render/keystroke.
+  const [distance] = useState(() => Math.random() * 2 + 0.5) // 0.5 to 2.5 km
   const suggestedTip = calculateSuggestedTip(distance)
 
   const handleNext = () => {
@@ -70,21 +71,52 @@ const PostRequest = () => {
   }
 
   const handleSubmit = async () => {
+    if (!user?.user) {
+      toast({
+        title: "Not signed in",
+        description: "Please log in again before posting a request.",
+        variant: "destructive"
+      })
+      navigate('/login')
+      return
+    }
+
     setLoading(true)
     try {
-      // TODO: Submit order request to Supabase
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
+      const restaurant = restaurants.find(r => r.id === formData.restaurant)
+      if (!restaurant) throw new Error('Please select a restaurant')
+
+      const deliveryLocation = formData.locationType === 'hostels'
+        ? `${formData.hostelType === 'mens' ? "Men's" : "Ladies"} Hostel ${formData.block}`
+        : formData.campusLocation
+
+      if (!deliveryLocation) throw new Error('Please select a delivery location')
+
+      await createOrder({
+        customer_id: user.user.id,
+        deliverer_id: null,
+        restaurant_name: restaurant.name,
+        restaurant_icon: restaurant.icon,
+        items_description: formData.orderDescription,
+        price: 0,
+        tip_amount: formData.tip[0],
+        pickup_location: restaurant.name,
+        delivery_location: deliveryLocation,
+        distance,
+        status: 'pending',
+        completed_at: null,
+      })
+
       toast({
         title: "Request Posted!",
         description: "Your order request has been posted. Waiting for a deliverer."
       })
-      
+
       navigate('/my-orders')
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to post request. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to post request. Please try again.",
         variant: "destructive"
       })
     } finally {

@@ -7,10 +7,14 @@ export const useChat = (orderId: string) => {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (orderId) {
-      fetchMessages()
-      subscribeToMessages()
-    }
+    if (!orderId) return
+
+    fetchMessages()
+    // subscribeToMessages() returns an unsubscribe function - it must be
+    // wired into this effect's cleanup, otherwise every orderId change
+    // (or remount) leaks a realtime channel subscription.
+    const unsubscribe = subscribeToMessages()
+    return unsubscribe
   }, [orderId])
 
   const fetchMessages = async () => {
