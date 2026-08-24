@@ -5,6 +5,8 @@ import Header from '@/components/layout/Header'
 import MobileNav from '@/components/layout/MobileNav'
 import SupportChat from '@/components/support/SupportChat'
 import OrderCard from '@/components/orders/OrderCard'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { AlertCircle } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { useOrders } from '@/hooks/useOrders'
 import { useToast } from '@/hooks/use-toast'
@@ -14,7 +16,7 @@ const Home = () => {
   const { toast } = useToast()
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
-  const { orders, loading, fetchOrders, acceptOrder, subscribeToOrders } = useOrders()
+  const { orders, loading, error, fetchOrders, acceptOrder, subscribeToOrders } = useOrders()
   const [activeFilter, setActiveFilter] = useState('all')
 
   useEffect(() => {
@@ -132,6 +134,14 @@ const Home = () => {
           ))}
         </div>
 
+        {error && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Couldn't load orders</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Orders Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {orders.map((order) => (
@@ -161,7 +171,7 @@ const Home = () => {
           ))}
         </div>
 
-        {orders.length === 0 && !loading && (
+        {orders.length === 0 && !loading && !error && (
           <div className="text-center py-12">
             <p className="text-muted-foreground">No orders found for the selected filter.</p>
           </div>

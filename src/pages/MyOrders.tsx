@@ -1,410 +1,510 @@
-import React, { useState } from 'react'
-import { MessageCircle, MapPin, Clock, User, CheckCircle2, Package, Truck } from 'lucide-react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { MessageCircle, Clock, CheckCircle2, Package, Truck, AlertCircle, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import Header from '@/components/layout/Header'
 import MobileNav from '@/components/layout/MobileNav'
 import SupportChat from '@/components/support/SupportChat'
+import { useAuth } from '@/hooks/useAuth'
+import { useOrders } from '@/hooks/useOrders'
+import { useChat } from '@/hooks/useChat'
+import { useToast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/utils'
+import type { OrderWithProfiles, Order } from '@/lib/database-types'
 
-const MyOrders = () => {
-  const [activeOrder] = useState('order-1')
-  const [message, setMessage] = useState('')
-  const [chatMessages, setChatMessages] = useState([
-    {
-      id: 1,
-      sender: 'deliverer',
-      name: 'Arjun',
-      text: "Hi! I'm Arjun, I've accepted your order 👍",
-      timestamp: '2 min ago'
-    },
-    {
-      id: 2,
-      sender: 'deliverer',
-      name: 'Arjun',
-      text: "My contact: +91-9876543210",
-      timestamp: '2 min ago'
-    },
-    {
-      id: 3,
-      sender: 'deliverer',
-      name: 'Arjun',
-      text: "Heading to One Food now! ETA 15 mins",
-      timestamp: '1 min ago'
-    }
-  ])
-  const [otp, setOtp] = useState(['', '', '', '', '', ''])
+const STATUS_STEPS: { status: Order['status']; label: string; icon: typeof Clock }[] = [
+  { status: 'pending', label: 'Pending', icon: Clock },
+  { status: 'accepted', label: 'Accepted', icon: CheckCircle2 },
+  { status: 'picked_up', label: 'Picked Up', icon: Package },
+  { status: 'out_for_delivery', label: 'Out for Delivery', icon: Truck },
+  { status: 'delivered', label: 'Delivered', icon: CheckCircle2 },
+]
 
-  const orderStatuses = [
-    { status: 'pending', label: 'Pending', icon: Clock, completed: true },
-    { status: 'accepted', label: 'Accepted', icon: CheckCircle2, completed: true },
-    { status: 'picked-up', label: 'Picked Up', icon: Package, completed: true },
-    { status: 'out-for-delivery', label: 'Out for Delivery', icon: Truck, completed: false },
-    { status: 'delivered', label: 'Delivered', icon: CheckCircle2, completed: false }
-  ]
+const TERMINAL_STATUSES: Order['status'][] = ['delivered', 'cancelled']
 
-  const currentOrder = {
-    id: 'order-1',
-    restaurant: { name: 'One Food', icon: '🍔' },
-    items: '2x Chicken Burger + 1x Large Fries',
-    price: 240,
-    tip: 35,
-    deliverer: {
-      name: 'Arjun Kumar',
-      phone: '+91-9876543210',
-      rating: 4.8
-    },
-    status: 'picked-up',
-    location: 'Hostel K Block',
-    estimatedTime: '15 mins'
+const NEXT_DELIVERER_ACTION: Partial<Record<Order['status'], { label: string; next: Order['status'] }>> = {
+  accepted: { label: 'Mark Picked Up', next: 'picked_up' },
+  picked_up: { label: 'Mark Out for Delivery', next: 'out_for_delivery' },
+}
+
+const OrderStatusTimeline = ({ status }: { status: Order['status'] }) => {
+  const currentIndex = STATUS_STEPS.findIndex((s) => s.status === status)
+  return (
+    <div className="space-y-2">
+      {STATUS_STEPS.map((step, index) => {
+        const Icon = step.icon
+        const isCompleted = status !== 'cancelled' && index < currentIndex
+        const isCurrent = step.status === status
+        return (
+          <div key={step.status} className="flex items-center space-x-3">
+            <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
+              isCompleted
+                ? 'bg-success text-success-foreground'
+                : isCurrent
+                ? 'bg-primary text-primary-foreground animate-pulse'
+                : 'bg-muted text-muted-foreground'
+            }`}>
+              <Icon className="h-4 w-4" />
+            </div>
+            <span className={isCompleted || isCurrent ? 'font-medium' : 'text-muted-foreground'}>
+              {step.label}
+            </span>
+            {isCurrent && <Badge variant="outline" className="ml-auto">Current</Badge>}
+          </div>
+        )
+      })}
+      {status === 'cancelled' && (
+        <Badge variant="destructive">Cancelled</Badge>
+      )}
+    </div>
+  )
+}
+
+const OtpPanel = ({
+  order,
+  isCustomer,
+  isDeliverer,
+  getMyOrderOtp,
+  verifyDeliveryOtp,
+  onVerified,
+}: {
+  order: OrderWithProfiles
+  isCustomer: boolean
+  isDeliverer: boolean
+  getMyOrderOtp: (orderId: string) => Promise<string>
+  verifyDeliveryOtp: (orderId: string, code: string) => Promise<boolean>
+  onVerified: () => void
+}) => {
+  const { toast } = useToast()
+  const [otp, setOtp] = useState<string | null>(null)
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [otpError, setOtpError] = useState<string | null>(null)
+  const [inputCode, setInputCode] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [verifyError, setVerifyError] = useState<string | null>(null)
+
+  const otpEligible = order.status === 'picked_up' || order.status === 'out_for_delivery'
+
+  useEffect(() => {
+    if (!isCustomer || !otpEligible) return
+    let cancelled = false
+    setOtpLoading(true)
+    setOtpError(null)
+    getMyOrderOtp(order.id)
+      .then((code) => { if (!cancelled) setOtp(code) })
+      .catch((err) => { if (!cancelled) setOtpError(getErrorMessage(err, 'Failed to load OTP')) })
+      .finally(() => { if (!cancelled) setOtpLoading(false) })
+    return () => { cancelled = true }
+  }, [isCustomer, otpEligible, order.id, order.status])
+
+  if (!otpEligible) return null
+
+  if (isCustomer) {
+    return (
+      <div className="space-y-3">
+        <h3 className="font-semibold">Delivery OTP</h3>
+        <p className="text-sm text-muted-foreground">
+          Share this code with your deliverer when they arrive - it confirms the delivery.
+        </p>
+        {otpLoading && (
+          <div className="flex justify-center space-x-2">
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="w-10 h-10" />)}
+          </div>
+        )}
+        {otpError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{otpError}</AlertDescription>
+          </Alert>
+        )}
+        {!otpLoading && !otpError && otp && (
+          <div className="flex justify-center space-x-2">
+            {otp.split('').map((digit, index) => (
+              <div key={index} className="w-10 h-10 flex items-center justify-center bg-primary text-primary-foreground rounded-md text-lg font-semibold">
+                {digit}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
-  const handleSendMessage = () => {
-    if (!message.trim()) return
-
-    const newMessage = {
-      id: chatMessages.length + 1,
-      sender: 'customer',
-      name: 'You',
-      text: message,
-      timestamp: 'just now'
-    }
-
-    setChatMessages([...chatMessages, newMessage])
-    setMessage('')
-  }
-
-  const handleOtpChange = (index: number, value: string) => {
-    if (value.length <= 1) {
-      const newOtp = [...otp]
-      newOtp[index] = value
-      setOtp(newOtp)
-      
-      if (value && index < 5) {
-        const nextInput = document.getElementById(`delivery-otp-${index + 1}`)
-        nextInput?.focus()
+  if (isDeliverer) {
+    const handleVerify = async () => {
+      setVerifying(true)
+      setVerifyError(null)
+      try {
+        const success = await verifyDeliveryOtp(order.id, inputCode)
+        if (success) {
+          toast({ title: 'Delivery confirmed!', description: 'The order has been marked as delivered.' })
+          setInputCode('')
+          onVerified()
+        } else {
+          setVerifyError('Incorrect code. Ask the customer to confirm and try again.')
+        }
+      } catch (err) {
+        setVerifyError(getErrorMessage(err, 'Verification failed'))
+      } finally {
+        setVerifying(false)
       }
+    }
+
+    return (
+      <div className="space-y-3">
+        <h3 className="font-semibold flex items-center space-x-2">
+          <ShieldCheck className="h-4 w-4" />
+          <span>Confirm Delivery</span>
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Ask the customer for their 6-digit code and enter it below.
+        </p>
+        <div className="flex justify-center">
+          <Input
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="000000"
+            value={inputCode}
+            onChange={(e) => setInputCode(e.target.value.replace(/\D/g, ''))}
+            className="w-40 text-center text-lg font-semibold tracking-widest"
+          />
+        </div>
+        {verifyError && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{verifyError}</AlertDescription>
+          </Alert>
+        )}
+        <Button
+          onClick={handleVerify}
+          disabled={verifying || inputCode.length !== 6}
+          className="w-full btn-campus-primary"
+        >
+          {verifying ? 'Verifying...' : 'Verify & Complete Delivery'}
+        </Button>
+      </div>
+    )
+  }
+
+  return null
+}
+
+const ChatPanel = ({ orderId, senderId, senderType }: { orderId: string; senderId: string; senderType: 'customer' | 'deliverer' }) => {
+  const { messages, loading, error, sendMessage } = useChat(orderId)
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+
+  const handleSend = async () => {
+    if (!message.trim() || sending) return
+    setSending(true)
+    try {
+      await sendMessage(message, senderId, senderType)
+      setMessage('')
+    } catch {
+      // swallow - the input keeps the draft so the user can retry
+    } finally {
+      setSending(false)
     }
   }
 
   return (
+    <Card className="h-fit">
+      <CardHeader>
+        <CardTitle className="flex items-center space-x-2">
+          <MessageCircle className="h-5 w-5" />
+          <span>Chat</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="h-64 overflow-y-auto space-y-3 p-3 bg-muted/20 rounded-lg">
+          {loading && <p className="text-sm text-muted-foreground text-center">Loading messages...</p>}
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {!loading && !error && messages.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center">No messages yet. Say hello!</p>
+          )}
+          {messages.map((msg) => (
+            <div key={msg.id} className={`flex ${msg.sender_id === senderId ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[80%] p-2 rounded-lg ${
+                msg.sender_id === senderId
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-card text-card-foreground border'
+              }`}>
+                <p className="text-sm">{msg.message}</p>
+                <p className="text-xs opacity-70 mt-1">
+                  {new Date(msg.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: 'numeric' })}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex space-x-2">
+          <Input
+            placeholder="Type your message..."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            maxLength={1000}
+          />
+          <Button onClick={handleSend} disabled={sending || !message.trim()}>Send</Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+const MyOrders = () => {
+  const { toast } = useToast()
+  const { user, loading: authLoading } = useAuth()
+  const { orders, loading, error, fetchOrders, updateOrderStatus, getMyOrderOtp, verifyDeliveryOtp } = useOrders()
+
+  useEffect(() => {
+    if (user) {
+      fetchOrders({ mine: { as: 'either', userId: user.user.id } })
+    }
+  }, [user])
+
+  const refetch = () => {
+    if (user) fetchOrders({ mine: { as: 'either', userId: user.user.id } })
+  }
+
+  const { activeOrder, pastOrders } = useMemo(() => {
+    const active = orders.find((o) => !TERMINAL_STATUSES.includes(o.status))
+    const past = orders.filter((o) => o !== active)
+    return { activeOrder: active, pastOrders: past }
+  }, [orders])
+
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-6 pb-20 md:pb-6">
+          <div className="max-w-6xl mx-auto space-y-6">
+            <Skeleton className="h-96 w-full" />
+          </div>
+        </main>
+        <MobileNav />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-6 pb-20 md:pb-6">
+          <div className="max-w-2xl mx-auto">
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Couldn't load your orders</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+            <Button className="mt-4" onClick={refetch}>Try Again</Button>
+          </div>
+        </main>
+        <MobileNav />
+      </div>
+    )
+  }
+
+  if (!user) return null
+
+  if (!activeOrder && pastOrders.length === 0) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-6 pb-20 md:pb-6">
+          <div className="max-w-2xl mx-auto text-center py-16 space-y-3">
+            <Package className="h-10 w-10 mx-auto text-muted-foreground" />
+            <h2 className="text-lg font-semibold">No orders yet</h2>
+            <p className="text-muted-foreground">Post a request or accept an order from the home feed to see it here.</p>
+          </div>
+        </main>
+        <MobileNav />
+        <SupportChat />
+      </div>
+    )
+  }
+
+  const isCustomer = activeOrder ? activeOrder.customer_id === user.user.id : false
+  const isDeliverer = activeOrder ? activeOrder.deliverer_id === user.user.id : false
+  const counterpartyProfile = activeOrder
+    ? (isCustomer ? activeOrder.deliverer_profile : activeOrder.customer_profile)
+    : null
+  const nextAction = activeOrder ? NEXT_DELIVERER_ACTION[activeOrder.status] : undefined
+
+  const handleAdvanceStatus = async () => {
+    if (!activeOrder || !nextAction) return
+    try {
+      await updateOrderStatus(activeOrder.id, nextAction.next, user.user.id)
+      toast({ title: 'Order updated', description: `Status changed to ${nextAction.next.replace(/_/g, ' ')}` })
+      refetch()
+    } catch (err) {
+      toast({
+        title: 'Could not update order',
+        description: getErrorMessage(err, 'Please try again.'),
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const orderInfoCard = activeOrder && (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center space-x-2">
+          <span className="text-2xl">{activeOrder.restaurant_icon}</span>
+          <span>{activeOrder.restaurant_name}</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div>
+          <p className="font-medium">{activeOrder.items_description}</p>
+          <div className="flex items-center justify-between mt-2">
+            <span className="text-lg font-semibold">₹{activeOrder.price}</span>
+            <Badge className="tip-badge">₹{activeOrder.tip_amount} tip</Badge>
+          </div>
+        </div>
+
+        {counterpartyProfile && (
+          <div className="flex items-center space-x-2">
+            <Avatar className="h-8 w-8">
+              <AvatarFallback className="bg-primary text-primary-foreground">
+                {(counterpartyProfile.full_name || '?').charAt(0)}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <p className="font-medium">{counterpartyProfile.full_name || 'Unknown'}</p>
+              <p className="text-sm text-muted-foreground">
+                {isCustomer ? counterpartyProfile.phone || 'No phone shared' : counterpartyProfile.phone}
+              </p>
+            </div>
+          </div>
+        )}
+        {isCustomer && !activeOrder.deliverer_id && (
+          <p className="text-sm text-muted-foreground">Waiting for a deliverer to accept your order...</p>
+        )}
+
+        <div className="space-y-3">
+          <h3 className="font-semibold">Order Status</h3>
+          <OrderStatusTimeline status={activeOrder.status} />
+        </div>
+
+        {isDeliverer && nextAction && (
+          <Button onClick={handleAdvanceStatus} className="w-full btn-campus-primary">
+            {nextAction.label}
+          </Button>
+        )}
+
+        <OtpPanel
+          order={activeOrder}
+          isCustomer={isCustomer}
+          isDeliverer={isDeliverer}
+          getMyOrderOtp={getMyOrderOtp}
+          verifyDeliveryOtp={verifyDeliveryOtp}
+          onVerified={refetch}
+        />
+      </CardContent>
+    </Card>
+  )
+
+  const historyCard = (
+    <Card>
+      <CardHeader>
+        <CardTitle>Past Orders</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {pastOrders.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No past orders yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {pastOrders.map((order) => (
+              <div key={order.id} className="flex items-center justify-between border-b pb-2 last:border-0">
+                <div className="flex items-center space-x-2">
+                  <span className="text-lg">{order.restaurant_icon}</span>
+                  <div>
+                    <p className="font-medium text-sm">{order.restaurant_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(order.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+                <Badge variant={order.status === 'delivered' ? 'outline' : 'destructive'}>
+                  {order.status}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+
+  return (
     <div className="min-h-screen bg-background">
       <Header />
-      
+
       <main className="container mx-auto px-4 py-6 pb-20 md:pb-6">
         <div className="max-w-6xl mx-auto">
           {/* Desktop Layout */}
           <div className="hidden md:grid md:grid-cols-2 gap-6">
-            {/* Order Info */}
             <div className="space-y-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <span className="text-2xl">{currentOrder.restaurant.icon}</span>
-                    <span>{currentOrder.restaurant.name}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="font-medium">{currentOrder.items}</p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-lg font-semibold">₹{currentOrder.price}</span>
-                      <Badge className="tip-badge">₹{currentOrder.tip} tip</Badge>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <Avatar className="h-8 w-8">
-                      <AvatarFallback className="bg-primary text-primary-foreground">
-                        {currentOrder.deliverer.name.charAt(0)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">{currentOrder.deliverer.name}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {currentOrder.deliverer.rating} ⭐ • {currentOrder.deliverer.phone}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Order Status Timeline */}
-                  <div className="space-y-3">
-                    <h3 className="font-semibold">Order Status</h3>
-                    <div className="space-y-2">
-                      {orderStatuses.map((status, index) => {
-                        const Icon = status.icon
-                        const isCompleted = status.completed
-                        const isCurrent = currentOrder.status === status.status
-                        
-                        return (
-                          <div key={status.status} className="flex items-center space-x-3">
-                            <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                              isCompleted 
-                                ? 'bg-success text-success-foreground' 
-                                : isCurrent 
-                                ? 'bg-primary text-primary-foreground animate-pulse'
-                                : 'bg-muted text-muted-foreground'
-                            }`}>
-                              <Icon className="h-4 w-4" />
-                            </div>
-                            <span className={`${isCompleted || isCurrent ? 'font-medium' : 'text-muted-foreground'}`}>
-                              {status.label}
-                            </span>
-                            {isCurrent && (
-                              <Badge variant="outline" className="ml-auto">Current</Badge>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* OTP Section */}
-                  <div className="space-y-3">
-                    <h3 className="font-semibold">Delivery OTP</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Share this OTP with your deliverer upon receiving your order
-                    </p>
-                    <div className="flex justify-center space-x-2">
-                      {otp.map((digit, index) => (
-                        <Input
-                          key={index}
-                          id={`delivery-otp-${index}`}
-                          type="text"
-                          inputMode="numeric"
-                          maxLength={1}
-                          value={digit}
-                          onChange={(e) => handleOtpChange(index, e.target.value)}
-                          className="w-10 h-10 text-center text-lg font-semibold"
-                          readOnly
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Map */}
-              <Card>
-                <CardContent className="p-0">
-                  <div className="h-64 bg-muted rounded-lg flex items-center justify-center">
-                    <div className="text-center">
-                      <MapPin className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                      <p className="text-muted-foreground">Live tracking map</p>
-                      <p className="text-sm text-muted-foreground">
-                        Deliverer location: Near {currentOrder.restaurant.name}
-                      </p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              {orderInfoCard}
+              {historyCard}
             </div>
 
-            {/* Chat */}
-            <Card className="h-fit">
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <MessageCircle className="h-5 w-5" />
-                  <span>Chat with Deliverer</span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Messages */}
-                <div className="h-64 overflow-y-auto space-y-3 p-3 bg-muted/20 rounded-lg">
-                  {chatMessages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex ${msg.sender === 'customer' ? 'justify-end' : 'justify-start'}`}
-                    >
-                      <div
-                        className={`max-w-[80%] p-2 rounded-lg ${
-                          msg.sender === 'customer'
-                            ? 'bg-primary text-primary-foreground'
-                            : 'bg-card text-card-foreground border'
-                        }`}
-                      >
-                        <p className="text-sm">{msg.text}</p>
-                        <p className="text-xs opacity-70 mt-1">{msg.timestamp}</p>
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {/* Typing Indicator */}
-                  <div className="flex justify-start">
-                    <div className="bg-card text-card-foreground border p-2 rounded-lg">
-                      <p className="text-sm text-muted-foreground">Arjun is typing...</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Message Input */}
-                <div className="flex space-x-2">
-                  <Input
-                    placeholder="Type your message..."
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                  />
-                  <Button onClick={handleSendMessage}>Send</Button>
-                </div>
-              </CardContent>
-            </Card>
+            {activeOrder ? (
+              <ChatPanel
+                orderId={activeOrder.id}
+                senderId={user.user.id}
+                senderType={isCustomer ? 'customer' : 'deliverer'}
+              />
+            ) : (
+              <Card className="h-fit">
+                <CardContent className="p-6 text-center text-muted-foreground">
+                  No active order to chat about right now.
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* Mobile Layout */}
           <div className="md:hidden">
             <Tabs defaultValue="order" className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="order">Order Info</TabsTrigger>
                 <TabsTrigger value="chat">Chat</TabsTrigger>
-                <TabsTrigger value="track">Track</TabsTrigger>
               </TabsList>
 
               <TabsContent value="order" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center space-x-2">
-                      <span className="text-2xl">{currentOrder.restaurant.icon}</span>
-                      <span>{currentOrder.restaurant.name}</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <p className="font-medium">{currentOrder.items}</p>
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="text-lg font-semibold">₹{currentOrder.price}</span>
-                        <Badge className="tip-badge">₹{currentOrder.tip} tip</Badge>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback className="bg-primary text-primary-foreground">
-                          {currentOrder.deliverer.name.charAt(0)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-medium">{currentOrder.deliverer.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {currentOrder.deliverer.rating} ⭐ • {currentOrder.deliverer.phone}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Order Status Timeline */}
-                    <div className="space-y-3">
-                      <h3 className="font-semibold">Order Status</h3>
-                      <div className="space-y-2">
-                        {orderStatuses.map((status, index) => {
-                          const Icon = status.icon
-                          const isCompleted = status.completed
-                          const isCurrent = currentOrder.status === status.status
-                          
-                          return (
-                            <div key={status.status} className="flex items-center space-x-3">
-                              <div className={`flex items-center justify-center w-8 h-8 rounded-full ${
-                                isCompleted 
-                                  ? 'bg-success text-success-foreground' 
-                                  : isCurrent 
-                                  ? 'bg-primary text-primary-foreground animate-pulse'
-                                  : 'bg-muted text-muted-foreground'
-                              }`}>
-                                <Icon className="h-4 w-4" />
-                              </div>
-                              <span className={`${isCompleted || isCurrent ? 'font-medium' : 'text-muted-foreground'}`}>
-                                {status.label}
-                              </span>
-                              {isCurrent && (
-                                <Badge variant="outline" className="ml-auto">Current</Badge>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                {orderInfoCard}
+                {historyCard}
               </TabsContent>
 
               <TabsContent value="chat" className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center space-x-2">
-                      <MessageCircle className="h-5 w-5" />
-                      <span>Chat with Deliverer</span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Messages */}
-                    <div className="h-64 overflow-y-auto space-y-3 p-3 bg-muted/20 rounded-lg">
-                      {chatMessages.map((msg) => (
-                        <div
-                          key={msg.id}
-                          className={`flex ${msg.sender === 'customer' ? 'justify-end' : 'justify-start'}`}
-                        >
-                          <div
-                            className={`max-w-[80%] p-2 rounded-lg ${
-                              msg.sender === 'customer'
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-card text-card-foreground border'
-                            }`}
-                          >
-                            <p className="text-sm">{msg.text}</p>
-                            <p className="text-xs opacity-70 mt-1">{msg.timestamp}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Message Input */}
-                    <div className="flex space-x-2">
-                      <Input
-                        placeholder="Type your message..."
-                        value={message}
-                        onChange={(e) => setMessage(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                      />
-                      <Button onClick={handleSendMessage}>Send</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="track" className="space-y-4">
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="h-64 bg-muted rounded-lg flex items-center justify-center mb-4">
-                      <div className="text-center">
-                        <MapPin className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                        <p className="text-muted-foreground">Live tracking map</p>
-                        <p className="text-sm text-muted-foreground">
-                          Deliverer location: Near {currentOrder.restaurant.name}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* OTP Section */}
-                    <div className="space-y-3">
-                      <h3 className="font-semibold">Delivery OTP</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Share this OTP with your deliverer upon receiving your order
-                      </p>
-                      <div className="flex justify-center space-x-2">
-                        {['1', '2', '3', '4', '5', '6'].map((digit, index) => (
-                          <div
-                            key={index}
-                            className="w-10 h-10 flex items-center justify-center bg-primary text-primary-foreground rounded-md text-lg font-semibold"
-                          >
-                            {Math.floor(Math.random() * 10)}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                {activeOrder ? (
+                  <ChatPanel
+                    orderId={activeOrder.id}
+                    senderId={user.user.id}
+                    senderType={isCustomer ? 'customer' : 'deliverer'}
+                  />
+                ) : (
+                  <Card>
+                    <CardContent className="p-6 text-center text-muted-foreground">
+                      No active order to chat about right now.
+                    </CardContent>
+                  </Card>
+                )}
               </TabsContent>
             </Tabs>
           </div>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { Profile } from '@/lib/database-types'
+import { SignupSchema, LoginSchema, ProfileUpdateSchema, validateOrThrow } from '@/lib/validation'
 
 export interface AuthUser {
   user: User
@@ -58,13 +59,20 @@ export const useAuth = () => {
   }
 
   const signUp = async (email: string, password: string, userData: { fullName: string; phone: string }) => {
-    const { data, error } = await supabase.auth.signUp({
+    const validated = validateOrThrow(SignupSchema, {
       email,
       password,
+      fullName: userData.fullName,
+      phone: userData.phone,
+    })
+
+    const { data, error } = await supabase.auth.signUp({
+      email: validated.email,
+      password: validated.password,
       options: {
         data: {
-          full_name: userData.fullName,
-          phone: userData.phone,
+          full_name: validated.fullName,
+          phone: validated.phone,
         },
       },
     })
@@ -75,15 +83,15 @@ export const useAuth = () => {
     if (data.user) {
       const { error: profileError } = await supabase.from('profiles').insert([{
         id: data.user.id,
-        full_name: userData.fullName,
-        email: email,
-        phone: userData.phone,
+        full_name: validated.fullName,
+        email: validated.email,
+        phone: validated.phone,
         is_deliverer: false,
         total_deliveries: 0,
         balance: 0,
         friend_count: 0,
       }] as any)
-      
+
       if (profileError) {
         console.error('Error creating profile:', profileError)
       }
@@ -93,9 +101,11 @@ export const useAuth = () => {
   }
 
   const signIn = async (email: string, password: string) => {
+    const validated = validateOrThrow(LoginSchema, { email, password })
+
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+      email: validated.email,
+      password: validated.password,
     })
 
     if (error) throw error
@@ -110,9 +120,11 @@ export const useAuth = () => {
   const updateProfile = async (updates: Partial<Profile>) => {
     if (!user?.user) throw new Error('No user logged in')
 
+    const validated = validateOrThrow(ProfileUpdateSchema, updates)
+
     const { error } = await (supabase as any)
       .from('profiles')
-      .update(updates)
+      .update(validated)
       .eq('id', user.user.id)
 
     if (error) throw error

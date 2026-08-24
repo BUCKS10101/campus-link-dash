@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Trophy, Star, Wallet, Users, Package, Clock, MapPin, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -6,6 +6,16 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import {
   Table,
   TableBody,
@@ -17,14 +27,81 @@ import {
 import Header from '@/components/layout/Header'
 import MobileNav from '@/components/layout/MobileNav'
 import SupportChat from '@/components/support/SupportChat'
+import { useAuth } from '@/hooks/useAuth'
+import { useToast } from '@/hooks/use-toast'
+import { getErrorMessage } from '@/lib/utils'
+
+const EditProfileDialog = ({
+  fullName,
+  phone,
+  onSave,
+}: {
+  fullName: string
+  phone: string
+  onSave: (updates: { full_name: string; phone: string }) => Promise<void>
+}) => {
+  const { toast } = useToast()
+  const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState({ full_name: fullName, phone })
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      await onSave(form)
+      toast({ title: 'Profile updated' })
+      setOpen(false)
+    } catch (error) {
+      toast({
+        title: 'Could not update profile',
+        description: getErrorMessage(error, 'Please try again.'),
+        variant: 'destructive',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (next) setForm({ full_name: fullName, phone }) }}>
+      <DialogTrigger asChild>
+        <Button variant="outline" className="w-full">Edit Profile</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Profile</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label htmlFor="edit-full-name">Full Name</Label>
+            <Input
+              id="edit-full-name"
+              value={form.full_name}
+              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-phone">Phone (10 digits)</Label>
+            <Input
+              id="edit-phone"
+              value={form.phone}
+              maxLength={10}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={handleSave} disabled={saving} className="w-full">
+            {saving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
 
 const Profile = () => {
-  const userStats = [
-    { icon: Package, label: 'Successful Deliveries', value: '27', color: 'text-success' },
-    { icon: Star, label: 'Average Rating', value: '4.8 ⭐', color: 'text-amber-500' },
-    { icon: Wallet, label: 'Current Balance', value: '₹350', color: 'text-primary' },
-    { icon: Users, label: 'Friend Network', value: '23 connections', color: 'text-accent' }
-  ]
+  const { user, loading: authLoading, updateProfile } = useAuth()
 
   const orderHistory = [
     { id: '1', restaurant: { name: 'One Food', icon: '🍔' }, items: '2x Burger + Fries', amount: 240, date: '2 days ago', status: 'Delivered' },
@@ -33,6 +110,39 @@ const Profile = () => {
     { id: '4', restaurant: { name: 'One Food', icon: '🍔' }, items: '1x Pizza', amount: 450, date: '1 week ago', status: 'Delivered' },
     { id: '5', restaurant: { name: 'DC Cafe', icon: '☕' }, items: '2x Tea + Snacks', amount: 120, date: '1 week ago', status: 'Delivered' }
   ]
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container mx-auto px-4 py-6 pb-20 md:pb-6">
+          <div className="max-w-6xl mx-auto space-y-6">
+            <Skeleton className="h-32 w-full" />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
+            </div>
+          </div>
+        </main>
+        <MobileNav />
+      </div>
+    )
+  }
+
+  const profile = user?.profile
+  const displayName = profile?.full_name || 'Your Profile'
+  const displayPhone = profile?.phone ? `+91-${profile.phone}` : 'No phone on file'
+  const avatarInitial = displayName.charAt(0).toUpperCase() || '?'
+
+  const userStats = [
+    { icon: Package, label: 'Successful Deliveries', value: String(profile?.total_deliveries ?? 0), color: 'text-success' },
+    { icon: Star, label: 'Average Rating', value: profile?.rating != null ? `${profile.rating.toFixed(1)} ⭐` : 'No ratings yet', color: 'text-amber-500' },
+    { icon: Wallet, label: 'Current Balance', value: `₹${profile?.balance ?? 0}`, color: 'text-primary' },
+    { icon: Users, label: 'Friend Network', value: `${profile?.friend_count ?? 0} connections`, color: 'text-accent' }
+  ]
+
+  const handleSaveProfile = async (updates: { full_name: string; phone: string }) => {
+    await updateProfile(updates)
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -45,15 +155,15 @@ const Profile = () => {
             <CardContent className="p-6">
               <div className="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6">
                 <Avatar className="h-20 w-20">
-                  <AvatarImage src="/avatars/user.png" alt="User" />
-                  <AvatarFallback className="bg-primary text-primary-foreground text-2xl">G</AvatarFallback>
+                  <AvatarImage src={profile?.avatar_url ?? undefined} alt={displayName} />
+                  <AvatarFallback className="bg-primary text-primary-foreground text-2xl">{avatarInitial}</AvatarFallback>
                 </Avatar>
-                
+
                 <div className="text-center md:text-left flex-1">
-                  <h1 className="text-2xl font-bold">Govind</h1>
-                  <p className="text-muted-foreground">VIT Student Since 2023</p>
-                  <p className="text-sm text-muted-foreground">+91-7736359996</p>
-                  <Badge className="mt-2" variant="secondary">Active Member</Badge>
+                  <h1 className="text-2xl font-bold">{displayName}</h1>
+                  <p className="text-muted-foreground">{profile?.email || user?.user.email}</p>
+                  <p className="text-sm text-muted-foreground">{displayPhone}</p>
+                  <Badge className="mt-2" variant="secondary">{profile?.is_deliverer ? 'Deliverer' : 'Active Member'}</Badge>
                 </div>
 
                 <Button className="btn-campus-primary">
@@ -181,9 +291,11 @@ const Profile = () => {
                 </div>
 
                 <div className="pt-4 space-y-2">
-                  <Button variant="outline" className="w-full">
-                    Edit Profile
-                  </Button>
+                  <EditProfileDialog
+                    fullName={profile?.full_name || ''}
+                    phone={profile?.phone || ''}
+                    onSave={handleSaveProfile}
+                  />
                   <Button variant="outline" className="w-full">
                     Privacy Settings
                   </Button>
