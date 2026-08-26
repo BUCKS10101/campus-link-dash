@@ -46,6 +46,14 @@ export const PostOrderSchema = z.object({
   tip_amount: z.number().min(10, 'Tip must be at least ₹10').max(1000, 'Tip must be under ₹1000'),
   delivery_location: DeliveryLocationSchema,
   distance_km: z.number().min(0).max(50).nullable(),
+  pickup_point_id: z.string().uuid().nullable(),
+  delivery_point_id: z.string().uuid().nullable(),
+  // A custom (user-dropped) pin - see PHASE3_3A_LOCATION_SPEC.md §14-§16.
+  // Mutual exclusivity with delivery_point_id is a product invariant
+  // PostRequest.tsx maintains, not something this schema enforces.
+  custom_delivery_lat: z.number().min(-90).max(90).nullable(),
+  custom_delivery_lng: z.number().min(-180).max(180).nullable(),
+  custom_delivery_note: z.string().trim().max(300, 'Note must be under 300 characters').nullable(),
   status: z.literal('pending'),
 })
 export type PostOrderInput = z.infer<typeof PostOrderSchema>

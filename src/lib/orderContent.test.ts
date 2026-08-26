@@ -7,6 +7,7 @@ import {
   formatDeliveryLocation,
   getRestaurantIcon,
   FALLBACK_RESTAURANT_ICON,
+  formatRouteEstimate,
 } from './orderContent'
 
 describe('OrderItemsSchema / parseOrderItemsInput / formatOrderItems', () => {
@@ -69,5 +70,35 @@ describe('getRestaurantIcon', () => {
 
   it('falls back to a generic icon for an unrecognized restaurant', () => {
     expect(getRestaurantIcon('Some New Place')).toBe(FALLBACK_RESTAURANT_ICON)
+  })
+})
+
+describe('formatRouteEstimate', () => {
+  it('labels a real routed geometry as a walking estimate with ETA', () => {
+    const routed = {
+      distanceKm: 0.104695405554211,
+      etaMinutes: 1.3,
+      geometry: { type: 'LineString', coordinates: [[79.16, 12.97], [79.161, 12.971]] },
+    }
+    expect(formatRouteEstimate(routed)).toBe('0.1 km · ~1 min walk')
+  })
+
+  it('never labels a null-geometry fallback as a walk - straight-line distance estimate only', () => {
+    const fallback = {
+      distanceKm: 0.291310733330948,
+      etaMinutes: 3.5,
+      geometry: null,
+    }
+    const result = formatRouteEstimate(fallback)
+    expect(result).toBe('~0.3 km · distance estimate')
+    expect(result).not.toContain('walk')
+  })
+
+  it('supports a different decimal precision (MyOrders uses 2)', () => {
+    const routed = { distanceKm: 0.104695405554211, etaMinutes: 1.3, geometry: { type: 'LineString', coordinates: [] } }
+    expect(formatRouteEstimate(routed, 2)).toBe('0.10 km · ~1 min walk')
+
+    const fallback = { distanceKm: 0.291310733330948, etaMinutes: 3.5, geometry: null }
+    expect(formatRouteEstimate(fallback, 2)).toBe('~0.29 km · distance estimate')
   })
 })

@@ -5,6 +5,8 @@ import { isValidOrderStatusTransition } from '@/lib/orderStatus'
 import { PostOrderSchema, OtpCodeSchema, validateOrThrow } from '@/lib/validation'
 import { getErrorMessage } from '@/lib/utils'
 
+export type WalkingRoute = { distanceKm: number; geometry: GeoJSON.LineString | null; etaMinutes: number }
+
 // Deliberately excludes otp: that column's SELECT privilege is revoked in
 // supabase/migrations/20260824120300_otp_verification.sql, so a bare
 // `select('*')` here would fail with "permission denied for column otp"
@@ -12,7 +14,9 @@ import { getErrorMessage } from '@/lib/utils'
 // verify_delivery_otp() (see below) instead.
 const ORDER_COLUMNS = `
   id, requester_id, deliverer_id, restaurant_name, items, tip_amount,
-  delivery_location, distance_km, status, created_at
+  delivery_location, distance_km, pickup_point_id, delivery_point_id,
+  custom_delivery_lat, custom_delivery_lng, custom_delivery_note,
+  status, created_at
 `
 
 const ORDER_COLUMNS_WITH_PROFILES = `
@@ -207,6 +211,70 @@ export const useOrders = () => {
     return Boolean(data)
   }
 
+  /**
+   * Real, server-computed distance between two campus_points rows - see
+   * supabase/migrations/20260826100000_campus_points.sql. Returns null
+   * (not an error toast) when either point isn't a seeded/active
+   * campus_points row yet, which is the normal case for most current
+   * pickup/delivery combinations - see PHASE3_3A_ARCHITECTURE_PROPOSAL.md.
+   * Never fabricates a distance; the caller shows nothing rather than a
+   * fake number when this returns null.
+   */
+  const computeDistance = async (pickupPointId: string, deliveryPointId: string): Promise<number | null> => {
+    const { data, error } = await supabase.rpc('compute_order_distance', {
+      p_pickup_id: pickupPointId,
+      p_delivery_id: deliveryPointId,
+    })
+    if (error) return null
+    return data as unknown as number
+  }
+
+  /**
+   * Real walking-route distance, geometry, and a simple ETA estimate -
+   * see supabase/migrations/20260826140000_campus_routing_and_live_location.sql.
+   * Falls back to straight-line distance (geometry: null) inside the RPC
+   * itself when a real route can't be computed yet; this wrapper only
+   * turns "no seeded coordinate at all" into null, same honesty rule as
+   * computeDistance above - never a fabricated number.
+   */
+  const computeWalkingRoute = async (
+    pickupPointId: string,
+    deliveryPointId: string,
+  ): Promise<WalkingRoute | null> => {
+    const { data, error } = await supabase.rpc('compute_walking_route', {
+      p_pickup_id: pickupPointId,
+      p_delivery_id: deliveryPointId,
+    })
+    if (error) return null
+    const row = (data as unknown as { distance_km: number; geometry: GeoJSON.LineString | null; eta_minutes: number }[])?.[0]
+    if (!row) return null
+    return { distanceKm: row.distance_km, geometry: row.geometry, etaMinutes: row.eta_minutes }
+  }
+
+  /**
+   * Same as computeWalkingRoute, but for a custom (user-dropped) pin
+   * instead of a campus_points row - see
+   * supabase/migrations/20260826150000_campus_catalog_expansion.sql and
+   * PHASE3_3A_LOCATION_SPEC.md §18. The RPC snaps the raw coordinate to
+   * the path graph live and falls back to haversine on its own; this
+   * wrapper only turns a hard RPC error into null, same as above.
+   */
+  const computeWalkingRouteCustom = async (
+    pickupPointId: string,
+    deliveryLat: number,
+    deliveryLng: number,
+  ): Promise<WalkingRoute | null> => {
+    const { data, error } = await supabase.rpc('compute_walking_route_custom', {
+      p_pickup_id: pickupPointId,
+      p_delivery_lat: deliveryLat,
+      p_delivery_lng: deliveryLng,
+    })
+    if (error) return null
+    const row = (data as unknown as { distance_km: number; geometry: GeoJSON.LineString | null; eta_minutes: number }[])?.[0]
+    if (!row) return null
+    return { distanceKm: row.distance_km, geometry: row.geometry, etaMinutes: row.eta_minutes }
+  }
+
   const subscribeToOrders = (callback: (payload: any) => void) => {
     const subscription = supabase
       .channel('orders')
@@ -231,6 +299,9 @@ export const useOrders = () => {
     updateOrderStatus,
     getMyOrderOtp,
     verifyDeliveryOtp,
+    computeDistance,
+    computeWalkingRoute,
+    computeWalkingRouteCustom,
     subscribeToOrders,
   }
 }

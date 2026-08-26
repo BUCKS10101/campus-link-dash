@@ -64,3 +64,23 @@ const RESTAURANT_ICONS: Record<string, string> = {
 export const FALLBACK_RESTAURANT_ICON = '🍽️'
 export const getRestaurantIcon = (restaurantName: string): string =>
   RESTAURANT_ICONS[restaurantName] ?? FALLBACK_RESTAURANT_ICON
+
+/**
+ * compute_walking_route()/compute_walking_route_custom() return
+ * geometry: null whenever the two points aren't graph-connected (see
+ * PHASE3_3A_LOCATION_SPEC.md §4) - distance_km in that case is a
+ * straight-line haversine number, not a walked distance. Collapsing both
+ * cases into one "X km · about Y min walk" string (as the UI did before
+ * this fix) misrepresents the fallback as a real route. This is the one
+ * shared place that decides the wording, so every distance/ETA display
+ * says the same true thing regardless of which page renders it.
+ */
+export type RouteEstimate = { distanceKm: number; etaMinutes: number; geometry: unknown | null }
+
+export const formatRouteEstimate = (route: RouteEstimate, decimals: 1 | 2 = 1): string => {
+  const km = route.distanceKm.toFixed(decimals)
+  if (route.geometry) {
+    return `${km} km · ~${Math.round(route.etaMinutes)} min walk`
+  }
+  return `~${km} km · distance estimate`
+}

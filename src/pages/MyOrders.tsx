@@ -6,14 +6,18 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertCircle, ChevronDown } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
-import { useOrders } from '@/hooks/useOrders'
+import { useOrders, type WalkingRoute } from '@/hooks/useOrders'
 import { useToast } from '@/hooks/use-toast'
 import { getErrorMessage, cn } from '@/lib/utils'
-import { formatOrderItems, formatDeliveryLocation } from '@/lib/orderContent'
+import { formatOrderItems, formatDeliveryLocation, formatRouteEstimate } from '@/lib/orderContent'
 import { Text, Rule, StatusBadge } from '@/components/primitives'
 import { ChatThread } from '@/components/chat/ChatThread'
 import { createTimeline, DURATION, EASE } from '@/lib/motion/gsap'
+import { useCampusPoints } from '@/hooks/useCampusPoints'
+import { usePublishDeliveryLocation, useDeliveryLocation } from '@/hooks/useDeliveryLocation'
 import type { OrderWithProfiles, Order } from '@/lib/database-types'
+
+const CampusMap = React.lazy(() => import('@/components/map/CampusMap'))
 
 const TERMINAL_STATUSES: Order['status'][] = ['delivered', 'cancelled']
 const STATUS_SEQUENCE: Order['status'][] = ['pending', 'accepted', 'picked_up', 'out_for_delivery', 'delivered']
@@ -245,6 +249,122 @@ const OtpPanel = ({
   return null
 }
 
+/**
+ * Real walking route + optional live location - see
+ * supabase/migrations/20260826140000_campus_routing_and_live_location.sql
+ * and PHASE3_3A_ARCHITECTURE_REVISION.md. Only rendered while
+ * ActiveOrderDetail itself is mounted (the expanded order), and only does
+ * anything at all once the order is picked_up/out_for_delivery AND both
+ * ends resolved to a seeded campus_points row at creation time - most
+ * orders won't have that yet (see PHASE3_3A_ARCHITECTURE_PROPOSAL.md), so
+ * this renders nothing rather than a broken or fabricated map for them.
+ * MapLibre itself only loads (via the lazy CampusMap import) once this
+ * condition is actually met.
+ */
+const DeliveryTrackingSection = ({
+  order,
+  isDeliverer,
+  computeWalkingRoute,
+  computeWalkingRouteCustom,
+}: {
+  order: OrderWithProfiles
+  isDeliverer: boolean
+  computeWalkingRoute: (pickupPointId: string, deliveryPointId: string) => Promise<WalkingRoute | null>
+  computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
+}) => {
+  const { points } = useCampusPoints()
+  const [route, setRoute] = useState<WalkingRoute | null>(null)
+  const [sharing, setSharing] = useState(false)
+
+  const trackingEligible = order.status === 'picked_up' || order.status === 'out_for_delivery'
+  const pickupPoint = order.pickup_point_id ? points.find((p) => p.id === order.pickup_point_id) : undefined
+  const deliveryPoint = order.delivery_point_id ? points.find((p) => p.id === order.delivery_point_id) : undefined
+  // A custom pin (PHASE3_3A_LOCATION_SPEC.md §14/§16) - mutually exclusive
+  // with delivery_point_id on a real order, so at most one of these two
+  // "delivery target" branches is ever populated.
+  const hasCustomDelivery = order.custom_delivery_lat != null && order.custom_delivery_lng != null
+  const routable = trackingEligible && !!pickupPoint && (!!deliveryPoint || hasCustomDelivery)
+
+  useEffect(() => {
+    if (!routable || !pickupPoint) {
+      setRoute(null)
+      return
+    }
+    let cancelled = false
+    const request = deliveryPoint
+      ? computeWalkingRoute(pickupPoint.id, deliveryPoint.id)
+      : computeWalkingRouteCustom(pickupPoint.id, order.custom_delivery_lat!, order.custom_delivery_lng!)
+    request.then((r) => {
+      if (!cancelled) setRoute(r)
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routable, pickupPoint?.id, deliveryPoint?.id, order.custom_delivery_lat, order.custom_delivery_lng])
+
+  // Both hooks are always called (rules of hooks) - each is a no-op
+  // (doesn't touch geolocation or subscribe) while its own `enabled`
+  // argument is false. Deliverer sharing requires the explicit checkbox
+  // below, separate from just having the section visible; requester
+  // reception is gated only on the order actually being in an active
+  // delivery state.
+  const { error: shareError } = usePublishDeliveryLocation(isDeliverer ? order.id : null, isDeliverer && sharing)
+  const { location: liveLocation, stale } = useDeliveryLocation(!isDeliverer ? order.id : null, !isDeliverer && trackingEligible)
+
+  if (!routable) return null
+
+  return (
+    <div className="mt-5 border-t-2 border-foreground pt-5">
+      <Text variant="label" tone="faint" as="div">Route</Text>
+
+      {isDeliverer && (
+        <label className="mt-3 flex items-center gap-2 font-body text-body-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={sharing}
+            onChange={(e) => setSharing(e.target.checked)}
+            className="size-4"
+          />
+          Share my live location for this delivery
+        </label>
+      )}
+      {isDeliverer && shareError && (
+        <Text variant="caption" tone="danger" as="p" className="mt-1">{shareError}</Text>
+      )}
+      {!isDeliverer && !liveLocation && (
+        <Text variant="caption" tone="faint" as="p" className="mt-2">
+          {stale ? 'Their last known location is out of date.' : 'Waiting for their live location…'}
+        </Text>
+      )}
+
+      {!isDeliverer && hasCustomDelivery && order.custom_delivery_note && (
+        <Text variant="bodySm" tone="muted" as="p" className="mt-2">
+          &ldquo;{order.custom_delivery_note}&rdquo;
+        </Text>
+      )}
+
+      <React.Suspense fallback={<div className="mt-3 h-56 w-full bg-surface-sunken" aria-hidden="true" />}>
+        <CampusMap
+          className="mt-3 h-56 w-full"
+          pickup={{ lat: pickupPoint!.lat, lng: pickupPoint!.lng, label: pickupPoint!.label }}
+          delivery={
+            deliveryPoint
+              ? { lat: deliveryPoint.lat, lng: deliveryPoint.lng, label: deliveryPoint.label }
+              : { lat: order.custom_delivery_lat!, lng: order.custom_delivery_lng!, label: 'Custom pin' }
+          }
+          route={route?.geometry ?? null}
+          liveLocation={liveLocation}
+        />
+      </React.Suspense>
+
+      {route && (
+        <Text variant="caption" tone="faint" as="p" className="mt-2">
+          {formatRouteEstimate(route, 2)}
+        </Text>
+      )}
+    </div>
+  )
+}
+
 /** The rich order object — status, counterpart, next action, OTP, chat.
  * Only mounted for the order currently expanded in its lane, so OTP fetches
  * and chat subscriptions never fire for orders the user hasn't opened. */
@@ -254,6 +374,8 @@ const ActiveOrderDetail = ({
   currentUserId,
   getMyOrderOtp,
   verifyDeliveryOtp,
+  computeWalkingRoute,
+  computeWalkingRouteCustom,
   onAdvance,
   onVerified,
 }: {
@@ -262,6 +384,8 @@ const ActiveOrderDetail = ({
   currentUserId: string
   getMyOrderOtp: (orderId: string) => Promise<string>
   verifyDeliveryOtp: (orderId: string, code: string) => Promise<boolean>
+  computeWalkingRoute: (pickupPointId: string, deliveryPointId: string) => Promise<WalkingRoute | null>
+  computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
   onAdvance: (order: OrderWithProfiles) => void
   onVerified: () => void
 }) => {
@@ -301,6 +425,8 @@ const ActiveOrderDetail = ({
         onVerified={onVerified}
       />
 
+      <DeliveryTrackingSection order={order} isDeliverer={isDeliverer} computeWalkingRoute={computeWalkingRoute} computeWalkingRouteCustom={computeWalkingRouteCustom} />
+
       <ChatThread
         orderId={order.id}
         currentUserId={currentUserId}
@@ -328,6 +454,8 @@ const ActiveOrderRow = ({
   currentUserId: string
   getMyOrderOtp: (orderId: string) => Promise<string>
   verifyDeliveryOtp: (orderId: string, code: string) => Promise<boolean>
+  computeWalkingRoute: (pickupPointId: string, deliveryPointId: string) => Promise<WalkingRoute | null>
+  computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
   onAdvance: (order: OrderWithProfiles) => void
   onVerified: () => void
 }) => {
@@ -398,6 +526,8 @@ const Lane = ({
   currentUserId: string
   getMyOrderOtp: (orderId: string) => Promise<string>
   verifyDeliveryOtp: (orderId: string, code: string) => Promise<boolean>
+  computeWalkingRoute: (pickupPointId: string, deliveryPointId: string) => Promise<WalkingRoute | null>
+  computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
   onAdvance: (order: OrderWithProfiles) => void
   onVerified: () => void
 }) => {
@@ -472,7 +602,7 @@ const ActivitySkeleton = () => (
 const MyOrders = () => {
   const { toast } = useToast()
   const { user, loading: authLoading } = useAuth()
-  const { orders, loading, error, fetchOrders, updateOrderStatus, getMyOrderOtp, verifyDeliveryOtp } = useOrders()
+  const { orders, loading, error, fetchOrders, updateOrderStatus, getMyOrderOtp, verifyDeliveryOtp, computeWalkingRoute, computeWalkingRouteCustom } = useOrders()
   const [expandedRequesterId, setExpandedRequesterId] = useState<string | null>(null)
   const [expandedDelivererId, setExpandedDelivererId] = useState<string | null>(null)
   // Only the very first load shows the full skeleton - refetch() after
@@ -583,6 +713,8 @@ const MyOrders = () => {
           currentUserId={user.user.id}
           getMyOrderOtp={getMyOrderOtp}
           verifyDeliveryOtp={verifyDeliveryOtp}
+          computeWalkingRoute={computeWalkingRoute}
+          computeWalkingRouteCustom={computeWalkingRouteCustom}
           onAdvance={handleAdvance}
           onVerified={refetch}
         />
@@ -596,6 +728,8 @@ const MyOrders = () => {
           currentUserId={user.user.id}
           getMyOrderOtp={getMyOrderOtp}
           verifyDeliveryOtp={verifyDeliveryOtp}
+          computeWalkingRoute={computeWalkingRoute}
+          computeWalkingRouteCustom={computeWalkingRouteCustom}
           onAdvance={handleAdvance}
           onVerified={refetch}
         />
