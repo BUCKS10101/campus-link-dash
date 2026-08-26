@@ -1,5 +1,36 @@
 import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+/**
+ * Plain twMerge doesn't know about this project's custom font-size scale
+ * (text-display, text-h2, text-body, ...) - it only recognises Tailwind's
+ * default text-xs..text-9xl suffixes as font-size. Every other "text-*"
+ * suffix falls into its text-COLOR group instead, so e.g. "text-body
+ * text-primary-foreground" was silently resolving to just "text-body":
+ * twMerge treated both as the same conflicting group and dropped the
+ * color. That's not a hypothetical - it was actively deleting button
+ * text color across the app (see tailwind.config.ts's fontSize scale
+ * for the full list of keys this teaches twMerge about).
+ */
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      "font-size": [
+        "text-display",
+        "text-display-sm",
+        "text-h1",
+        "text-h2",
+        "text-h3",
+        "text-body",
+        "text-body-sm",
+        "text-caption",
+        "text-label",
+        "text-data",
+        "text-data-lg",
+      ],
+    },
+  },
+});
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));

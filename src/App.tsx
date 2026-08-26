@@ -1,38 +1,71 @@
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "next-themes";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { AppShell } from "@/components/shell";
+import { LoadingRegion } from "@/components/primitives";
+import { AuthProvider } from "@/hooks/useAuth";
+
+// Login stays eager: it is the cold-start destination for every signed-out
+// visitor (ProtectedRoute redirects there), so lazy-loading it would cost
+// that path a second sequential round trip.
 import Login from "./pages/Login";
-import Home from "./pages/Home";
-import PostRequest from "./pages/PostRequest";
-import MyOrders from "./pages/MyOrders";
-import Profile from "./pages/Profile";
-import NotFound from "./pages/NotFound";
+
+// Everything behind auth is split per route.
+const Home = lazy(() => import("./pages/Home"));
+const PostRequest = lazy(() => import("./pages/PostRequest"));
+const MyOrders = lazy(() => import("./pages/MyOrders"));
+const Profile = lazy(() => import("./pages/Profile"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
-            <Route path="/post-request" element={<ProtectedRoute><PostRequest /></ProtectedRoute>} />
-            <Route path="/my-orders" element={<ProtectedRoute><MyOrders /></ProtectedRoute>} />
-            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            {/* One shared auth listener for the whole app - see useAuth.tsx
+                for why per-component listeners caused both duplicate
+                profile fetches and a real deadlock on reload. */}
+            <AuthProvider>
+              <Suspense fallback={<LoadingRegion label="Loading CampusLink" />}>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+
+                  {/* Every route below shares one auth guard and one
+                      application shell (nav, page frame) — mounted once
+                      here rather than imported per page. */}
+                  <Route
+                    element={
+                      <ProtectedRoute>
+                        <AppShell />
+                      </ProtectedRoute>
+                    }
+                  >
+                    <Route path="/" element={<Home />} />
+                    <Route path="/post-request" element={<PostRequest />} />
+                    <Route path="/my-orders" element={<MyOrders />} />
+                    <Route path="/profile" element={<Profile />} />
+                  </Route>
+
+                  {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </Suspense>
+            </AuthProvider>
+          </BrowserRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   </ErrorBoundary>
 );
 

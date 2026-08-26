@@ -34,6 +34,35 @@ describe('useChat', () => {
     expect(result.current.messages).toEqual([])
   })
 
+  it('leaks nothing to an outsider viewing a real order they are not part of - RLS filters rows, not an error', async () => {
+    // chat_select_participant filters rows rather than erroring for an
+    // authenticated-but-unrelated viewer on a real order id - the request
+    // succeeds with zero rows, never exposing the participants' messages.
+    supabaseMock.from.mockReturnValue(createQueryBuilder({ data: [], error: null }))
+
+    const { result } = renderHook(() => useChat('someone-elses-order'))
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(result.current.error).toBeNull()
+    expect(result.current.messages).toEqual([])
+  })
+
+  it('surfaces sendMessage rejection when chat_insert_participant denies a non-participant', async () => {
+    supabaseMock.from.mockReturnValue(
+      createQueryBuilder({ data: null, error: { message: 'new row violates row-level security policy for table "chat_messages"' } })
+    )
+
+    const { result } = renderHook(() => useChat('someone-elses-order'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    await expect(
+      act(async () => {
+        await result.current.sendMessage('trying to butt in', 'outsider-id')
+      })
+    ).rejects.toThrow(/row-level security/i)
+  })
+
   it('loads messages for an authorized order', async () => {
     // chat_messages has no sender_type column live - bubble alignment is
     // derived from sender_id in MyOrders.tsx, not a stored role.

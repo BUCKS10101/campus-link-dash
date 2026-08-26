@@ -1,21 +1,80 @@
-import React, { useState } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Slider } from '@/components/ui/slider'
-import Header from '@/components/layout/Header'
-import MobileNav from '@/components/layout/MobileNav'
-import SupportChat from '@/components/support/SupportChat'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/useAuth'
 import { useOrders } from '@/hooks/useOrders'
-import { getErrorMessage } from '@/lib/utils'
+import { getErrorMessage, cn } from '@/lib/utils'
 import { parseOrderItemsInput } from '@/lib/orderContent'
 import type { DeliveryLocation } from '@/lib/orderContent'
+import { Text, Rule } from '@/components/primitives'
+import { createTimeline, DURATION, EASE } from '@/lib/motion/gsap'
+
+const RESTAURANTS = [
+  { id: 'one-food', name: 'One Food' },
+  { id: 'dc-cafe', name: 'DC Cafe' },
+  { id: 'campus-store', name: 'Campus Store' },
+]
+
+const HOSTEL_BLOCKS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T']
+
+const CAMPUS_LOCATIONS = ['TT Block', 'SJT Block', 'MB', 'PRP', 'GDN', 'Central Library', 'SMV', 'Academic Block']
+
+const TIP_PRESETS = [20, 30, 50, 75, 100]
+
+const STEP_META = [
+  { title: 'What', subtitle: "What are you asking someone to pick up?" },
+  { title: 'Where', subtitle: "Where's it going?" },
+  { title: 'Offer', subtitle: "What are you offering the person who brings it?" },
+  { title: 'Review', subtitle: 'One more look before it goes on the board.' },
+] as const
+
+const OptionRow = ({ selected, onClick, children }: { selected: boolean; onClick: () => void; children: React.ReactNode }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-pressed={selected}
+    className={cn(
+      'flex w-full items-center justify-between py-3 text-left font-body text-body transition-colors duration-fast ease-out',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+      selected ? 'font-semibold text-foreground' : 'text-muted-foreground hover:text-foreground',
+    )}
+  >
+    <span>{children}</span>
+    {selected && <span className="font-data text-caption uppercase tracking-[0.1em] text-primary-deep">Selected</span>}
+  </button>
+)
+
+const ToggleButton = ({ selected, onClick, children, className }: { selected: boolean; onClick: () => void; children: React.ReactNode; className?: string }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-pressed={selected}
+    className={cn(
+      'rounded-sm border px-4 py-2.5 font-body text-body-sm font-semibold transition-colors duration-fast ease-out',
+      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+      selected ? 'border-foreground bg-foreground text-background' : 'border-border text-muted-foreground hover:border-foreground hover:text-foreground',
+      className,
+    )}
+  >
+    {children}
+  </button>
+)
+
+const randomDistance = () => Math.random() * 2 + 0.5
+const calculateSuggestedTip = (distance: number) => Math.round(distance * 20)
+
+const initialFormData = {
+  restaurant: '',
+  orderDescription: '',
+  locationType: '',
+  hostelType: '',
+  block: '',
+  campusLocation: '',
+  tip: [30] as number[],
+}
 
 const PostRequest = () => {
   const navigate = useNavigate()
@@ -24,86 +83,116 @@ const PostRequest = () => {
   const { createOrder } = useOrders()
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
-  
-  const [formData, setFormData] = useState({
-    restaurant: '',
-    orderDescription: '',
-    locationType: '',
-    hostelType: '',
-    block: '',
-    campusLocation: '',
-    tip: [30]
-  })
+  const [attemptedAdvance, setAttemptedAdvance] = useState(false)
+  const [posted, setPosted] = useState<{ tip: number; items: string; restaurant: string; location: string } | null>(null)
+  const [formData, setFormData] = useState(initialFormData)
+  const topRef = useRef<HTMLDivElement>(null)
+  const successRef = useRef<HTMLDivElement>(null)
 
-  const restaurants = [
-    { id: 'one-food', name: 'One Food', icon: '🍔' },
-    { id: 'dc-cafe', name: 'DC Cafe', icon: '☕' },
-    { id: 'campus-store', name: 'Campus Store', icon: '🛒' }
-  ]
-
-  const hostelBlocks = [
-    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 
-    'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T'
-  ]
-
-  const campusLocations = [
-    'TT Block', 'SJT Block', 'MB', 'PRP', 'GDN', 
-    'Central Library', 'SMV', 'Academic Block'
-  ]
-
-  const calculateSuggestedTip = (distance: number) => {
-    return Math.round(distance * 20) // ₹20 per km as base
-  }
-
-  // Computed once per mount via useState initializer, not on every render -
-  // Math.random() in the render body would reshuffle the distance (and thus
-  // the tip shown to the user) on every re-render/keystroke.
-  const [distance] = useState(() => Math.random() * 2 + 0.5) // 0.5 to 2.5 km
+  // Computed once per mount (and again on "post another"), not on every
+  // render - Math.random() in the render body would reshuffle the tip
+  // suggestion on every keystroke.
+  const [distance, setDistance] = useState(randomDistance)
   const suggestedTip = calculateSuggestedTip(distance)
 
-  const handleNext = () => {
-    if (currentStep < 4) {
-      setCurrentStep(currentStep + 1)
+  useEffect(() => {
+    topRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [currentStep])
+
+  // Signature moment: the request assembling into "now part of the board."
+  // Headline settles first, the rule extends like the slip being drawn
+  // taut, the tip resolves into place, then the rest of the detail and the
+  // actions settle in - a short, coordinated sequence, not a hard cut to
+  // the finished state.
+  useEffect(() => {
+    if (!posted || !successRef.current) return
+    const el = successRef.current
+    const headline = el.querySelector('[data-success-headline]')
+    const body = el.querySelector('[data-success-body]')
+    const rule = el.querySelector('[data-success-rule]')
+    const tip = el.querySelector('[data-success-tip]')
+    const details = el.querySelectorAll('[data-success-detail]')
+    const actions = el.querySelector('[data-success-actions]')
+
+    const { tl, dur } = createTimeline()
+    tl.fromTo(headline, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: dur(DURATION.slow), ease: EASE.emphasized })
+      .fromTo(body, { opacity: 0 }, { opacity: 1, duration: dur(DURATION.base), ease: EASE.out }, `-=${dur(0.15)}`)
+      .fromTo(rule, { scaleX: 0 }, { scaleX: 1, duration: dur(DURATION.slow), ease: EASE.emphasized, transformOrigin: 'left' }, `-=${dur(0.05)}`)
+      .fromTo(tip, { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: dur(DURATION.base), ease: EASE.out }, `-=${dur(0.1)}`)
+      .fromTo(details, { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: dur(DURATION.fast), ease: EASE.out, stagger: dur(DURATION.instant) }, `-=${dur(0.05)}`)
+      .fromTo(actions, { opacity: 0 }, { opacity: 1, duration: dur(DURATION.base), ease: EASE.out }, `-=${dur(0.05)}`)
+
+    return () => { tl.kill() }
+  }, [posted])
+
+  const items = parseOrderItemsInput(formData.orderDescription)
+  const selectedRestaurant = RESTAURANTS.find((r) => r.id === formData.restaurant)
+  const locationLabel = formData.locationType === 'hostels'
+    ? (formData.block ? `${formData.hostelType === 'mens' ? "Men's" : 'Ladies'} Hostel ${formData.block}` : '')
+    : formData.campusLocation
+
+  const getStepIssue = (step: number): string | null => {
+    switch (step) {
+      case 1:
+        if (!formData.restaurant) return 'Select where you’re ordering from.'
+        if (items.length === 0) return 'Add at least one item.'
+        return null
+      case 2:
+        if (!formData.locationType) return 'Pick a hostel or a campus location.'
+        if (formData.locationType === 'hostels' && (!formData.hostelType || !formData.block)) return 'Pick a hostel and a block.'
+        if (formData.locationType === 'campus' && !formData.campusLocation) return 'Pick a campus location.'
+        return null
+      default:
+        return null
     }
   }
 
-  const handlePrevious = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1)
+  const currentIssue = getStepIssue(currentStep)
+
+  const resetForm = () => {
+    setFormData(initialFormData)
+    setDistance(randomDistance())
+    setCurrentStep(1)
+    setAttemptedAdvance(false)
+    setPosted(null)
+  }
+
+  const handleNext = () => {
+    if (currentIssue) {
+      setAttemptedAdvance(true)
+      return
     }
+    setAttemptedAdvance(false)
+    setCurrentStep((s) => Math.min(4, s + 1))
+  }
+
+  const handleBack = () => {
+    setAttemptedAdvance(false)
+    setCurrentStep((s) => Math.max(1, s - 1))
   }
 
   const handleSubmit = async () => {
+    if (loading) return
+
     if (!user?.user) {
-      toast({
-        title: "Not signed in",
-        description: "Please log in again before posting a request.",
-        variant: "destructive"
-      })
+      toast({ title: 'Not signed in', description: 'Please log in again before posting a request.', variant: 'destructive' })
       navigate('/login')
       return
     }
 
     setLoading(true)
     try {
-      const restaurant = restaurants.find(r => r.id === formData.restaurant)
+      const restaurant = RESTAURANTS.find((r) => r.id === formData.restaurant)
       if (!restaurant) throw new Error('Please select a restaurant')
 
-      // orders.delivery_location is jsonb - see src/lib/orderContent.ts for
-      // why this shape (mirrors what this form already collects). There's
-      // no separate pickup_location column on the live table; restaurant_name
-      // (a real column) already identifies where to pick up.
       const deliveryLocation: DeliveryLocation = formData.locationType === 'hostels'
         ? {
             type: 'hostel',
-            label: `${formData.hostelType === 'mens' ? "Men's" : "Ladies"} Hostel ${formData.block}`,
+            label: `${formData.hostelType === 'mens' ? "Men's" : 'Ladies'} Hostel ${formData.block}`,
             hostelType: formData.hostelType as 'mens' | 'ladies',
             block: formData.block,
           }
-        : {
-            type: 'campus',
-            label: formData.campusLocation,
-          }
+        : { type: 'campus', label: formData.campusLocation }
 
       if (!deliveryLocation.label) throw new Error('Please select a delivery location')
 
@@ -111,198 +200,165 @@ const PostRequest = () => {
         requester_id: user.user.id,
         deliverer_id: null,
         restaurant_name: restaurant.name,
-        items: parseOrderItemsInput(formData.orderDescription),
+        items,
         tip_amount: formData.tip[0],
         delivery_location: deliveryLocation,
         distance_km: distance,
         status: 'pending',
       })
 
-      toast({
-        title: "Request Posted!",
-        description: "Your order request has been posted. Waiting for a deliverer."
+      setPosted({
+        tip: formData.tip[0],
+        items: items.join(', '),
+        restaurant: restaurant.name,
+        location: deliveryLocation.label,
       })
-
-      navigate('/my-orders')
     } catch (error) {
-      toast({
-        title: "Error",
-        description: getErrorMessage(error, "Failed to post request. Please try again."),
-        variant: "destructive"
-      })
+      toast({ title: "Couldn't post it", description: getErrorMessage(error, 'Please try again.'), variant: 'destructive' })
     } finally {
       setLoading(false)
     }
   }
 
-  const isStepValid = () => {
-    switch (currentStep) {
-      case 1: return formData.restaurant !== ''
-      case 2: return formData.orderDescription.length > 10
-      case 3: 
-        if (formData.locationType === 'hostels') {
-          return formData.hostelType !== '' && formData.block !== ''
-        }
-        return formData.campusLocation !== ''
-      case 4: return true
-      default: return false
-    }
+  // The one recurring color field in this flow - the posting slip stays a
+  // forest block from the first keystroke through Review, so the object
+  // being assembled has a consistent, recognizable identity throughout,
+  // not just at the end.
+  const PostingPreview = ({ dense = false }: { dense?: boolean }) => (
+    <div className={cn('bg-foreground text-background', dense ? 'px-6 py-6' : 'px-7 py-8 md:sticky md:top-24')}>
+      <Text variant="label" tone="inherit" className="opacity-60">Preview</Text>
+      <Text variant="dataLg" tone="inherit" className="mt-3 block tabular-nums">
+        ₹{formData.tip[0]}
+      </Text>
+      <Text variant="h2" as="p" tone="inherit" className="mt-2 block">
+        {items.length > 0 ? items.join(', ') : <span className="opacity-60">What are you ordering?</span>}
+      </Text>
+      <Text variant="bodySm" tone="inherit" className="mt-2 block opacity-80">
+        {selectedRestaurant?.name ?? <span className="opacity-60">Pick a place</span>}
+        {' → '}
+        {locationLabel || <span className="opacity-60">Where&rsquo;s it going?</span>}
+      </Text>
+      <Text variant="caption" tone="inherit" className="mt-1 block opacity-60">
+        {distance.toFixed(1)} km · similar runs go for around ₹{suggestedTip}
+      </Text>
+    </div>
+  )
+
+  if (posted) {
+    return (
+      <div className="max-w-measure" ref={successRef}>
+        <Text variant="label" tone="faint" as="div">Posted</Text>
+        <Text data-success-headline variant="display" accent className="mt-4 block">It&rsquo;s on the board.</Text>
+        <Text data-success-body variant="body" tone="muted" className="mt-3 block max-w-[42ch]">
+          Someone nearby will see this right away. Once they take it, you&rsquo;ll get a delivery
+          code to hand over when they show up.
+        </Text>
+
+        <div data-success-rule className="mt-8 h-[2px] w-full origin-left bg-foreground" />
+
+        <div className="mt-6 bg-foreground px-7 py-8 text-background">
+          <Text data-success-detail variant="label" tone="inherit" as="div" className="opacity-60">What you posted</Text>
+          <Text data-success-tip variant="dataLg" tone="inherit" className="mt-3 block origin-left tabular-nums">₹{posted.tip}</Text>
+          <Text data-success-detail variant="h2" as="p" tone="inherit" className="mt-2 block">{posted.items}</Text>
+          <Text data-success-detail variant="bodySm" tone="inherit" className="mt-2 block opacity-80">{posted.restaurant} → {posted.location}</Text>
+        </div>
+
+        <div data-success-actions className="mt-8 flex flex-wrap items-center gap-6">
+          <Button onClick={() => navigate('/my-orders')}>View on Activity</Button>
+          <button
+            type="button"
+            onClick={resetForm}
+            className="font-body text-body-sm text-muted-foreground underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            Post another request
+          </button>
+        </div>
+      </div>
+    )
   }
 
-  const renderStepContent = () => {
+  const renderStep = () => {
     switch (currentStep) {
       case 1:
         return (
-          <div className="space-y-4">
-            <div>
-              <Label className="text-lg font-semibold">Select Restaurant</Label>
-              <p className="text-muted-foreground mb-4">Where would you like to order from?</p>
-            </div>
-            
-            <div className="space-y-3">
-              {restaurants.map((restaurant) => (
-                <Card
-                  key={restaurant.id}
-                  className={`cursor-pointer transition-all ${
-                    formData.restaurant === restaurant.id 
-                      ? 'ring-2 ring-primary bg-primary/5' 
-                      : 'hover:bg-muted/50'
-                  }`}
-                  onClick={() => setFormData({...formData, restaurant: restaurant.id})}
-                >
-                  <CardContent className="flex items-center justify-between p-4">
-                    <div className="flex items-center space-x-3">
-                      <span className="text-2xl">{restaurant.icon}</span>
-                      <span className="font-medium">{restaurant.name}</span>
-                    </div>
-                    {formData.restaurant === restaurant.id && (
-                      <div className="bg-primary text-primary-foreground px-2 py-1 rounded text-sm">
-                        Selected
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+          <div>
+            <div className="flex flex-wrap gap-2">
+              {RESTAURANTS.map((r) => (
+                <ToggleButton key={r.id} selected={formData.restaurant === r.id} onClick={() => setFormData({ ...formData, restaurant: r.id })}>
+                  {r.name}
+                </ToggleButton>
               ))}
+            </div>
+
+            <Text as="label" variant="label" tone="faint" htmlFor="items" className="mb-2 mt-7 block">Items</Text>
+            <Textarea
+              id="items"
+              placeholder={'2x Chicken Burger\n1x Large Fries\n2x Coke'}
+              value={formData.orderDescription}
+              onChange={(e) => setFormData({ ...formData, orderDescription: e.target.value })}
+              className="min-h-32 font-body"
+              maxLength={500}
+              aria-describedby="items-hint"
+            />
+            <div className="mt-2 flex items-center justify-between">
+              <Text id="items-hint" variant="caption" tone="faint">One item per line — be specific about quantities.</Text>
+              <Text variant="caption" tone="faint" className="shrink-0 tabular-nums">{formData.orderDescription.length}/500</Text>
             </div>
           </div>
         )
 
       case 2:
         return (
-          <div className="space-y-4">
-            <div>
-              <Label className="text-lg font-semibold">Describe Your Order</Label>
-              <p className="text-muted-foreground mb-4">What would you like to order?</p>
-            </div>
-            
-            <Textarea
-              placeholder="E.g., 2x Chicken Burger, 1x Large Fries, 2x Coke..."
-              value={formData.orderDescription}
-              onChange={(e) => setFormData({...formData, orderDescription: e.target.value})}
-              className="min-h-32"
-              maxLength={500}
-            />
-            
-            <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Be specific about quantities and preferences</span>
-              <span>{formData.orderDescription.length}/500</span>
-            </div>
-          </div>
-        )
-
-      case 3:
-        return (
-          <div className="space-y-4">
-            <div>
-              <Label className="text-lg font-semibold">Select Location</Label>
-              <p className="text-muted-foreground mb-4">Where should the order be delivered?</p>
-            </div>
-
-            {/* Location Type Selection */}
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <Card
-                className={`cursor-pointer transition-all ${
-                  formData.locationType === 'hostels' 
-                    ? 'ring-2 ring-primary bg-primary/5' 
-                    : 'hover:bg-muted/50'
-                }`}
-                onClick={() => setFormData({...formData, locationType: 'hostels', campusLocation: ''})}
+          <div>
+            <div className="flex gap-2">
+              <ToggleButton
+                selected={formData.locationType === 'hostels'}
+                onClick={() => setFormData({ ...formData, locationType: 'hostels', campusLocation: '' })}
+                className="flex-1 text-center"
               >
-                <CardContent className="flex items-center justify-center p-4">
-                  <div className="text-center">
-                    <div className="text-2xl mb-2">🏠</div>
-                    <div className="font-medium">Hostels</div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card
-                className={`cursor-pointer transition-all ${
-                  formData.locationType === 'campus' 
-                    ? 'ring-2 ring-primary bg-primary/5' 
-                    : 'hover:bg-muted/50'
-                }`}
-                onClick={() => setFormData({...formData, locationType: 'campus', hostelType: '', block: ''})}
+                Hostels
+              </ToggleButton>
+              <ToggleButton
+                selected={formData.locationType === 'campus'}
+                onClick={() => setFormData({ ...formData, locationType: 'campus', hostelType: '', block: '' })}
+                className="flex-1 text-center"
               >
-                <CardContent className="flex items-center justify-center p-4">
-                  <div className="text-center">
-                    <div className="text-2xl mb-2">🏛️</div>
-                    <div className="font-medium">Campus Locations</div>
-                  </div>
-                </CardContent>
-              </Card>
+                Campus
+              </ToggleButton>
             </div>
 
-            {/* Hostel Selection */}
             {formData.locationType === 'hostels' && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <Card
-                    className={`cursor-pointer transition-all ${
-                      formData.hostelType === 'mens' 
-                        ? 'ring-2 ring-primary bg-primary/5' 
-                        : 'hover:bg-muted/50'
-                    }`}
-                    onClick={() => setFormData({...formData, hostelType: 'mens', block: ''})}
-                  >
-                    <CardContent className="flex items-center justify-center p-3">
-                      <div className="text-center">
-                        <div className="text-xl mb-1">👨</div>
-                        <div className="text-sm font-medium">Men's Hostels</div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card
-                    className={`cursor-pointer transition-all ${
-                      formData.hostelType === 'ladies' 
-                        ? 'ring-2 ring-primary bg-primary/5' 
-                        : 'hover:bg-muted/50'
-                    }`}
-                    onClick={() => setFormData({...formData, hostelType: 'ladies', block: ''})}
-                  >
-                    <CardContent className="flex items-center justify-center p-3">
-                      <div className="text-center">
-                        <div className="text-xl mb-1">👩</div>
-                        <div className="text-sm font-medium">Ladies Hostels</div>
-                      </div>
-                    </CardContent>
-                  </Card>
+              <div className="mt-5">
+                <div className="flex gap-2">
+                  {(['mens', 'ladies'] as const).map((t) => (
+                    <ToggleButton
+                      key={t}
+                      selected={formData.hostelType === t}
+                      onClick={() => setFormData({ ...formData, hostelType: t, block: '' })}
+                      className="flex-1 text-center"
+                    >
+                      {t === 'mens' ? "Men's" : 'Ladies'}
+                    </ToggleButton>
+                  ))}
                 </div>
-
                 {formData.hostelType && (
-                  <div>
-                    <Label className="text-sm font-medium mb-2 block">Select Block</Label>
-                    <div className="grid grid-cols-5 gap-2">
-                      {hostelBlocks.map((block) => (
-                        <Button
+                  <div className="mt-4">
+                    <Text variant="label" tone="faint" as="div" className="mb-2">Block</Text>
+                    <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
+                      {HOSTEL_BLOCKS.map((block) => (
+                        <button
                           key={block}
-                          variant={formData.block === block ? "default" : "outline"}
-                          onClick={() => setFormData({...formData, block})}
-                          className="h-10"
+                          type="button"
+                          onClick={() => setFormData({ ...formData, block })}
+                          aria-pressed={formData.block === block}
+                          className={cn(
+                            'aspect-square font-data text-body-sm font-medium transition-colors duration-fast ease-out',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                            formData.block === block ? 'bg-primary text-primary-foreground' : 'border border-border text-muted-foreground hover:text-foreground',
+                          )}
                         >
                           {block}
-                        </Button>
+                        </button>
                       ))}
                     </div>
                   </div>
@@ -310,174 +366,122 @@ const PostRequest = () => {
               </div>
             )}
 
-            {/* Campus Location Selection */}
             {formData.locationType === 'campus' && (
-              <div className="space-y-3">
-                {campusLocations.map((location) => (
-                  <Card
-                    key={location}
-                    className={`cursor-pointer transition-all ${
-                      formData.campusLocation === location 
-                        ? 'ring-2 ring-primary bg-primary/5' 
-                        : 'hover:bg-muted/50'
-                    }`}
-                    onClick={() => setFormData({...formData, campusLocation: location})}
-                  >
-                    <CardContent className="flex items-center justify-between p-4">
-                      <span className="font-medium">{location}</span>
-                      {formData.campusLocation === location && (
-                        <div className="bg-primary text-primary-foreground px-2 py-1 rounded text-sm">
-                          Selected
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+              <div className="mt-5">
+                {CAMPUS_LOCATIONS.map((loc, i) => (
+                  <React.Fragment key={loc}>
+                    {i > 0 && <Rule />}
+                    <OptionRow selected={formData.campusLocation === loc} onClick={() => setFormData({ ...formData, campusLocation: loc })}>
+                      {loc}
+                    </OptionRow>
+                  </React.Fragment>
                 ))}
               </div>
             )}
           </div>
         )
 
-      case 4:
+      case 3:
         return (
-          <div className="space-y-6">
-            <div>
-              <Label className="text-lg font-semibold">Set Tip Amount</Label>
-              <p className="text-muted-foreground">Distance: {distance.toFixed(1)}km → Suggested tip: ₹{suggestedTip}</p>
+          <div>
+            <div className="flex items-baseline justify-between">
+              <Text variant="label" tone="faint">Tip</Text>
+              <Text variant="dataLg" tone="signalDeep" className="tabular-nums">₹{formData.tip[0]}</Text>
             </div>
 
-            <Card>
-              <CardContent className="p-6">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Tip Amount</span>
-                    <span className="text-lg font-bold">₹{formData.tip[0]}</span>
-                  </div>
-                  
-                  <Slider
-                    value={formData.tip}
-                    onValueChange={(value) => setFormData({...formData, tip: value})}
-                    max={200}
-                    min={10}
-                    step={5}
-                    className="w-full"
-                  />
-                  
-                  <div className="flex justify-between text-sm text-muted-foreground">
-                    <span>₹10</span>
-                    <span>₹200</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {TIP_PRESETS.map((amount) => (
+                <ToggleButton key={amount} selected={formData.tip[0] === amount} onClick={() => setFormData({ ...formData, tip: [amount] })}>
+                  ₹{amount}
+                </ToggleButton>
+              ))}
+            </div>
 
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="font-semibold mb-3">Order Summary</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span>Restaurant:</span>
-                    <span className="font-medium">
-                      {restaurants.find(r => r.id === formData.restaurant)?.name}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Location:</span>
-                    <span className="font-medium">
-                      {formData.locationType === 'hostels' 
-                        ? `${formData.hostelType === 'mens' ? "Men's" : "Ladies"} Hostel ${formData.block}`
-                        : formData.campusLocation
-                      }
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Distance:</span>
-                    <span className="font-medium">{distance.toFixed(1)} km</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Tip:</span>
-                    <span className="font-medium">₹{formData.tip[0]}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <Slider
+              value={formData.tip}
+              onValueChange={(value) => setFormData({ ...formData, tip: value })}
+              max={200}
+              min={10}
+              step={5}
+              className="mt-6"
+              aria-label="Custom tip amount"
+            />
+            <div className="mt-1 flex justify-between">
+              <Text variant="caption" tone="faint">₹10</Text>
+              <Text variant="caption" tone="faint">₹200</Text>
+            </div>
+
+            <Text variant="caption" tone="faint" className="mt-4 block">
+              {distance.toFixed(1)} km · similar runs go for around ₹{suggestedTip}
+            </Text>
           </div>
         )
+
+      case 4:
+        return <PostingPreview dense />
 
       default:
         return null
     }
   }
 
+  const showInlinePreview = currentStep < 4 && (formData.restaurant !== '' || items.length > 0 || locationLabel !== '')
+
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      
-      <main className="container mx-auto px-4 py-6 pb-20 md:pb-6">
-        {/* Progress Indicator */}
-        <div className="mb-8">
-          <div className="flex items-center justify-center space-x-4 mb-4">
-            {[1, 2, 3, 4].map((step) => (
-              <div
-                key={step}
-                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium ${
-                  step === currentStep
-                    ? 'bg-primary text-primary-foreground'
-                    : step < currentStep
-                    ? 'bg-success text-success-foreground'
-                    : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                {step}
-              </div>
-            ))}
-          </div>
-          <p className="text-center text-sm text-muted-foreground">
-            Step {currentStep} of 4
-          </p>
+    <div className="md:grid md:grid-cols-[1fr_320px] md:items-start md:gap-16">
+      <div className="max-w-measure" ref={topRef}>
+        <div aria-live="polite" className="sr-only">
+          Step {currentStep} of 4: {STEP_META[currentStep - 1].title}
         </div>
 
-        {/* Form Content */}
-        <Card className="max-w-2xl mx-auto">
-          <CardContent className="p-6">
-            {renderStepContent()}
-          </CardContent>
-        </Card>
+        <div className="mb-8">
+          <div className="flex items-baseline justify-between">
+            <Text variant="label" tone="faint" as="div">Post a request</Text>
+            <Text variant="label" tone="faint" as="div" className="tabular-nums">{currentStep} / 4</Text>
+          </div>
+          <div className="mt-4 flex h-[3px] gap-1" aria-hidden="true">
+            {[1, 2, 3, 4].map((n) => (
+              <div key={n} className={cn('flex-1 transition-colors duration-base ease-out', n <= currentStep ? 'bg-foreground' : 'bg-border')} />
+            ))}
+          </div>
+          <Text variant="display" accent as="h1" className="mt-6 block text-[2.75rem] leading-[0.98] sm:text-[3.25rem]">
+            {STEP_META[currentStep - 1].title}
+          </Text>
+          <Text variant="bodySm" tone="muted" as="p" className="mt-2">{STEP_META[currentStep - 1].subtitle}</Text>
+        </div>
 
-        {/* Navigation Buttons */}
-        <div className="flex justify-between max-w-2xl mx-auto mt-6">
-          <Button
-            variant="outline"
-            onClick={handlePrevious}
-            disabled={currentStep === 1}
-          >
-            <ChevronLeft className="h-4 w-4 mr-2" />
-            Previous
+        {showInlinePreview && (
+          <div className="mb-8 md:hidden">
+            <PostingPreview dense />
+          </div>
+        )}
+
+        <div key={currentStep} className="animate-rise-in">
+          {renderStep()}
+        </div>
+
+        <div className="mt-8 flex items-center justify-between gap-4">
+          <Button variant="ghost" onClick={handleBack} disabled={currentStep === 1}>
+            Back
           </Button>
 
           {currentStep < 4 ? (
-            <Button
-              onClick={handleNext}
-              disabled={!isStepValid()}
-              className="btn-campus-primary"
-            >
-              Next
-              <ChevronRight className="h-4 w-4 ml-2" />
-            </Button>
+            <Button onClick={handleNext}>Continue</Button>
           ) : (
-            <Button
-              onClick={handleSubmit}
-              disabled={loading || !isStepValid()}
-              className="btn-campus-primary"
-            >
-              {loading ? 'Posting...' : 'Post My Request'}
-            </Button>
+            <Button onClick={handleSubmit} loading={loading}>Post this request</Button>
           )}
         </div>
-      </main>
 
-      <MobileNav />
-      <SupportChat />
+        {attemptedAdvance && currentIssue && (
+          <Text variant="caption" tone="danger" className="mt-3 block text-right" role="alert">
+            {currentIssue}
+          </Text>
+        )}
+      </div>
+
+      <aside className="hidden md:block">
+        <PostingPreview />
+      </aside>
     </div>
   )
 }

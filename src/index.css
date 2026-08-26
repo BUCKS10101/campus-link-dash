@@ -2,121 +2,216 @@
 @tailwind components;
 @tailwind utilities;
 
-/* CampusLink Design System - Lilac and Beige Theme */
+/* ============================================================
+   CampusLink — "Counter" design system
+   ------------------------------------------------------------
+   A board of postings, set as type. The organising metaphor is the
+   canteen notice board / mess token / classified page, not a SaaS
+   dashboard. Type carries hierarchy; hairline rules separate content
+   instead of card borders.
+
+   Palette (forest/ivory, tuned): forest and ivory are the dominant
+   atmosphere/environment, cream is the surface tone, sage carries
+   secondary structure, and berry/wine is a RARE signal reserved for
+   reward figures and small active-state indicators — it is explicitly
+   NOT the default button colour. Primary buttons are forest-on-ivory
+   (light theme) / ivory-on-forest (dark theme, since the page ground
+   itself flips), never berry. Hex references: Forest #294238, Deep
+   Forest #1B2B24, Ivory #F4EFE6, Cream #ECE3D3, Sage #A7B5AA,
+   Ink #18221F, Berry #8F405E — tuned slightly from those literal
+   values for WCAG contrast and to keep existing token roles intact.
+
+   Single source of truth for every design token in the app. Nothing
+   outside this file should declare a raw colour, shadow, radius,
+   duration, or type size.
+
+   Colours are stored as bare HSL triplets ("339 46% 38%") because
+   Tailwind consumes them as hsl(var(--token)) — see tailwind.config.ts.
+   ============================================================ */
 
 @layer base {
   :root {
-    /* CampusLink Brand Colors */
-    --campus-lilac: 91 7% 95%;
-    --campus-beige: 44 32% 63%;
-    --campus-gold: 45 85% 75%;
-    
-    /* Background & Surface Colors */
-    --background: 91 7% 95%;
-    --foreground: 220 14% 17%;
-    
-    --card: 0 0% 100%;
-    --card-foreground: 220 14% 17%;
-    
-    --popover: 0 0% 100%;
-    --popover-foreground: 220 14% 17%;
-    
-    /* Primary Colors - Beige Theme */
-    --primary: 44 32% 63%;
-    --primary-foreground: 0 0% 100%;
-    
-    /* Secondary Colors - Lilac Theme */
-    --secondary: 91 7% 95%;
-    --secondary-foreground: 220 14% 17%;
-    
-    /* Muted Colors */
-    --muted: 91 12% 92%;
-    --muted-foreground: 220 9% 46%;
-    
-    /* Accent Colors - Gold */
-    --accent: 45 85% 75%;
-    --accent-foreground: 220 14% 17%;
-    
-    /* Status Colors */
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    
-    --success: 142 71% 45%;
+    /* ---------- Ground ---------- */
+    --background: 39 39% 93%;         /* ivory */
+    --foreground: 162 17% 11%;        /* ink */
+
+    --surface: 42 42% 96%;            /* raised — a touch lighter than ivory */
+    --surface-foreground: 162 17% 11%;
+    --surface-sunken: 38 40% 88%;     /* cream — a visibly deeper surface */
+    --surface-elevated: 42 42% 96%;   /* popovers, sheets */
+
+    /* shadcn compatibility aliases */
+    --card: var(--surface);
+    --card-foreground: var(--surface-foreground);
+    --popover: var(--surface-elevated);
+    --popover-foreground: var(--surface-foreground);
+
+    /* ---------- Primary action — forest button, ivory text. NOT berry;
+       berry is reserved for --primary-deep, the rare signal below. On
+       this light/ivory ground the button is the deep-forest surface (the
+       same hue as the dark theme's own background, reused here) so it
+       never reads as a white-on-white button; the pairing flips in .dark
+       below since the page ground itself flips. ---------- */
+    --primary: 154 25% 16%;           /* deep forest */
+    --primary-foreground: 39 39% 93%; /* warm ivory */
+    --primary-soft: 156 20% 90%;      /* soft forest tint — in-progress badges, chat's "mine" bubble */
+    --primary-deep: 337 38% 41%;      /* berry — reward/tip figures, small active signals */
+
+    /* ---------- Secondary accents ---------- */
+    --secondary: 38 40% 88%;          /* cream */
+    --secondary-foreground: 162 17% 11%;
+
+    --accent: 156 20% 35%;            /* companion — lighter forest, secondary emphasis */
+    --accent-foreground: 39 39% 96%;
+    --accent-soft: 133 12% 90%;
+
+    --info: 133 9% 45%;               /* sage — calmer counter-tone / info */
+    --info-foreground: 0 0% 100%;
+    --info-soft: 133 12% 90%;
+
+    /* ---------- Status (kept distinct from the signal/companion accents) ---------- */
+    --success: 145 32% 30%;
     --success-foreground: 0 0% 100%;
-    
-    /* Border & Input */
-    --border: 91 18% 88%;
-    --input: 91 18% 88%;
-    --ring: 44 32% 63%;
+    --success-soft: 125 22% 89%;
 
-    --radius: 0.5rem;
+    --warning: 34 50% 45%;
+    --warning-foreground: 0 0% 100%;
+    --warning-soft: 39 55% 87%;
 
-    --sidebar-background: 0 0% 98%;
+    --destructive: 10 47% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-soft: 17 45% 89%;
 
-    --sidebar-foreground: 240 5.3% 26.1%;
+    /* ---------- Text ---------- */
+    --text-muted: 162 12% 32%;
+    --text-faint: 133 8% 52%;
+    --muted: 38 40% 88%;
+    --muted-foreground: var(--text-muted);
 
-    --sidebar-primary: 240 5.9% 10%;
+    /* ---------- Lines — the primary structural device ---------- */
+    --border: 38 25% 82%;             /* rule — cream-toned */
+    --divider: 38 25% 82%;
+    --border-strong: 38 18% 70%;
+    --input: 38 18% 70%;
+    --ring: var(--primary);
 
-    --sidebar-primary-foreground: 0 0% 98%;
+    /* ---------- Disabled ---------- */
+    --disabled-surface: 38 40% 88%;
+    --disabled-foreground: 133 8% 52%;
 
-    --sidebar-accent: 240 4.8% 95.9%;
+    /* ---------- Elevation — used sparingly; Counter separates with rules,
+       not shadows. Reserved for things that must sit ABOVE the page:
+       sheets, dialogs, the floating Create action. ---------- */
+    --elevation-subtle: 0 1px 2px hsl(162 17% 11% / 0.05);
+    --elevation-default: 0 2px 8px hsl(162 17% 11% / 0.08);
+    --elevation-elevated: 0 8px 24px hsl(162 17% 11% / 0.12);
+    --elevation-floating: 0 16px 40px hsl(162 17% 11% / 0.18);
 
-    --sidebar-accent-foreground: 240 5.9% 10%;
+    /* ---------- Shape — mostly square. A card must earn a radius. ---------- */
+    --radius-sm: 3px;
+    --radius-md: 5px;
+    --radius-lg: 8px;
+    --radius-xl: 14px;
+    --radius-full: 9999px;
+    --radius: var(--radius-md);
 
-    --sidebar-border: 220 13% 91%;
+    /* ---------- Typography ---------- */
+    --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+    --font-body: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-heading: var(--font-display); /* legacy alias */
 
-    --sidebar-ring: 217.2 91.2% 59.8%;
-    
-    /* Gradients */
-    --gradient-lilac: linear-gradient(135deg, hsl(var(--campus-lilac)), hsl(91 12% 97%));
-    --gradient-beige: linear-gradient(135deg, hsl(var(--campus-beige)), hsl(44 32% 70%));
-    
-    /* Shadows */
-    --shadow-soft: 0 2px 20px hsl(var(--campus-lilac) / 0.15);
-    --shadow-card: 0 4px 25px hsl(91 7% 85% / 0.2);
-    
-    /* Typography */
-    --font-heading: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    /* ---------- Layout ---------- */
+    --layout-max: 1120px;
+    --measure: 66ch;                  /* running-text reading column */
+
+    /* ---------- Motion — paper physics: things slide, stack, settle.
+       Nothing bounces or glows. ---------- */
+    --duration-instant: 80ms;
+    --duration-fast: 160ms;
+    --duration-base: 240ms;
+    --duration-slow: 400ms;
+    --duration-deliberate: 700ms;
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+
+    /* ---------- Focus ---------- */
+    --focus-ring: 2px;
+    --focus-offset: 2px;
+
+    /* ---------- Sidebar (shadcn primitive, unused by app screens) ---------- */
+    --sidebar-background: var(--surface);
+    --sidebar-foreground: var(--surface-foreground);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--surface-sunken);
+    --sidebar-accent-foreground: var(--surface-foreground);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
   }
 
-
+  /* ============================================================
+     Dark theme — not an inversion, and not black+neon. Ground drops
+     to Deep Forest (#1B2B24), visibly green rather than near-black;
+     text lifts to ivory. Primary buttons flip to warm-ivory-on-forest
+     here (the page itself is already forest, so the button needs to be
+     the light element) - the same semantic pairing as light mode, just
+     inverted because the ground inverted. Berry/wine lifts in
+     lightness only, staying the same hue family.
+     ============================================================ */
   .dark {
-    --background: 220 14% 17%;
-    --foreground: 91 7% 95%;
-    
-    --card: 220 14% 22%;
-    --card-foreground: 91 7% 95%;
-    
-    --popover: 220 14% 22%;
-    --popover-foreground: 91 7% 95%;
-    
-    --primary: 44 32% 63%;
-    --primary-foreground: 0 0% 100%;
-    
-    --secondary: 220 14% 22%;
-    --secondary-foreground: 91 7% 95%;
-    
-    --muted: 220 14% 19%;
-    --muted-foreground: 220 9% 65%;
-    
-    --accent: 45 85% 75%;
-    --accent-foreground: 220 14% 17%;
-    
-    --destructive: 0 62% 50%;
-    --destructive-foreground: 0 0% 100%;
-    
-    --border: 220 14% 28%;
-    --input: 220 14% 28%;
-    --ring: 44 32% 63%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --background: 154 23% 14%;
+    --foreground: 39 35% 92%;
+
+    --surface: 154 20% 17%;
+    --surface-foreground: 39 35% 92%;
+    --surface-sunken: 154 25% 10%;
+    --surface-elevated: 154 18% 20%;
+
+    --primary: 39 45% 95%;            /* warm ivory */
+    --primary-foreground: 154 25% 16%; /* deep forest ink */
+    --primary-soft: 154 20% 22%;      /* soft forest tint — in-progress badges, chat's "mine" bubble */
+    --primary-deep: 337 55% 68%;      /* berry — still the rare signal */
+
+    --secondary: 154 20% 17%;
+    --secondary-foreground: 39 35% 92%;
+
+    --accent: 133 15% 62%;
+    --accent-foreground: 154 25% 10%;
+    --accent-soft: 133 15% 16%;
+
+    --info: 133 12% 58%;
+    --info-foreground: 133 20% 10%;
+    --info-soft: 133 15% 14%;
+
+    --success: 145 35% 55%;
+    --success-foreground: 145 30% 8%;
+    --success-soft: 145 25% 12%;
+
+    --warning: 38 55% 60%;
+    --warning-foreground: 35 40% 10%;
+    --warning-soft: 35 30% 13%;
+
+    --destructive: 13 50% 62%;
+    --destructive-foreground: 13 40% 9%;
+    --destructive-soft: 13 30% 12%;
+
+    --text-muted: 39 18% 68%;
+    --text-faint: 133 8% 45%;
+    --muted: 154 20% 17%;
+
+    --border: 154 16% 20%;
+    --divider: 154 16% 20%;
+    --border-strong: 154 16% 26%;
+    --input: 154 16% 26%;
+
+    --disabled-surface: 154 18% 18%;
+    --disabled-foreground: 133 8% 45%;
+
+    --elevation-subtle: 0 1px 2px hsl(0 0% 0% / 0.4);
+    --elevation-default: 0 2px 8px hsl(0 0% 0% / 0.45);
+    --elevation-elevated: 0 8px 24px hsl(0 0% 0% / 0.5);
+    --elevation-floating: 0 16px 40px hsl(0 0% 0% / 0.6);
   }
 }
 
@@ -125,52 +220,54 @@
     @apply border-border;
   }
 
-  body {
-    @apply bg-background text-foreground font-body;
-    font-family: var(--font-body);
+  html {
+    -webkit-text-size-adjust: 100%;
   }
-  
-  h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-heading);
-  }
-}
 
-@layer components {
-  /* Campus Card Styles */
-  .campus-card {
-    @apply bg-card border border-border rounded-lg shadow-card hover:shadow-lg transition-all duration-200;
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+    font-size: 16.5px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  
-  /* Campus Button Variants */
-  .btn-campus-primary {
-    @apply bg-primary text-primary-foreground hover:bg-primary/90 font-medium rounded-lg px-6 py-3 transition-colors;
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
   }
-  
-  .btn-campus-secondary {
-    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80 font-medium rounded-lg px-6 py-3 transition-colors;
+
+  /* One visible focus treatment for the whole app. */
+  :focus-visible {
+    outline: var(--focus-ring) solid hsl(var(--ring));
+    outline-offset: var(--focus-offset);
   }
-  
-  /* Friend Badge */
-  .friend-badge {
-    @apply bg-accent text-accent-foreground px-2 py-1 rounded-full text-xs font-medium;
+
+  /* Digits that update or align must not jitter. */
+  .tabular, [data-numeric] {
+    font-variant-numeric: tabular-nums;
   }
-  
-  /* Tip Badge */
-  .tip-badge {
-    @apply bg-primary text-primary-foreground px-2 py-1 rounded-full text-xs font-medium;
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
-  
-  /* Order Card */
-  .order-card {
-    @apply campus-card p-4 hover:shadow-lg transition-all duration-200;
-  }
-  
-  /* Navigation */
-  .nav-link {
-    @apply text-muted-foreground hover:text-foreground transition-colors;
-  }
-  
-  .nav-link-active {
-    @apply text-foreground font-medium;
+
+  /* Wrong-OTP feedback: the slip shakes once, briefly, and stays filled -
+     never clears the input. Retyping six digits is a punishment. */
+  @keyframes shake {
+    10%, 90% { transform: translateX(-1px); }
+    20%, 80% { transform: translateX(2px); }
+    30%, 50%, 70% { transform: translateX(-4px); }
+    40%, 60% { transform: translateX(4px); }
   }
 }

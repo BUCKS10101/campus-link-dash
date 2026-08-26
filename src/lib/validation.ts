@@ -3,8 +3,17 @@ import { OrderItemsSchema, DeliveryLocationSchema } from './orderContent'
 
 // ---------- Auth ----------
 
+const VIT_EMAIL = /@vitstudent\.ac\.in$/i
+
+const VITStudentEmailSchema = z
+  .string()
+  .trim()
+  .min(1, 'Email is required')
+  .email('Enter a valid email address')
+  .refine((value) => VIT_EMAIL.test(value), 'Must use a VIT student email ending in @vitstudent.ac.in')
+
 export const LoginSchema = z.object({
-  email: z.string().trim().min(1, 'Email is required').email('Enter a valid email address'),
+  email: VITStudentEmailSchema,
   password: z.string().min(1, 'Password is required'),
 })
 export type LoginInput = z.infer<typeof LoginSchema>
@@ -15,7 +24,7 @@ export const SignupSchema = z.object({
     .trim()
     .min(2, 'Full name must be at least 2 characters')
     .max(100, 'Full name must be under 100 characters'),
-  email: z.string().trim().min(1, 'Email is required').email('Enter a valid email address'),
+  email: VITStudentEmailSchema,
   phone: z
     .string()
     .trim()

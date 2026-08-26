@@ -10,8 +10,13 @@ import {
 } from './validation'
 
 describe('LoginSchema', () => {
-  it('accepts a valid email/password', () => {
-    expect(LoginSchema.safeParse({ email: 'a@b.com', password: 'x' }).success).toBe(true)
+  it('accepts a valid VIT email/password', () => {
+    expect(LoginSchema.safeParse({ email: 'a@vitstudent.ac.in', password: 'x' }).success).toBe(true)
+  })
+
+  it('rejects non-VIT emails', () => {
+    const result = LoginSchema.safeParse({ email: 'a@b.com', password: 'x' })
+    expect(result.success).toBe(false)
   })
 
   it('rejects an invalid email', () => {
@@ -20,7 +25,7 @@ describe('LoginSchema', () => {
   })
 
   it('rejects an empty password', () => {
-    const result = LoginSchema.safeParse({ email: 'a@b.com', password: '' })
+    const result = LoginSchema.safeParse({ email: 'a@vitstudent.ac.in', password: '' })
     expect(result.success).toBe(false)
   })
 })
@@ -30,6 +35,10 @@ describe('SignupSchema', () => {
 
   it('accepts valid signup data', () => {
     expect(SignupSchema.safeParse(valid).success).toBe(true)
+  })
+
+  it('rejects non-VIT emails', () => {
+    expect(SignupSchema.safeParse({ ...valid, email: 'jane@gmail.com' }).success).toBe(false)
   })
 
   it('rejects a short password', () => {
@@ -136,7 +145,7 @@ describe('OtpCodeSchema', () => {
 
 describe('validateOrThrow', () => {
   it('returns the parsed value on success', () => {
-    expect(validateOrThrow(LoginSchema, { email: 'a@b.com', password: 'x' })).toEqual({ email: 'a@b.com', password: 'x' })
+    expect(validateOrThrow(LoginSchema, { email: 'a@vitstudent.ac.in', password: 'x' })).toEqual({ email: 'a@vitstudent.ac.in', password: 'x' })
   })
 
   it('throws an Error with the first issue message on failure', () => {

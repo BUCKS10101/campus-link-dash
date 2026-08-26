@@ -1,79 +1,89 @@
 import React from 'react'
-import { Clock, MapPin, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent } from '@/components/ui/card'
+import { Text } from '@/components/primitives'
 
-interface OrderCardProps {
-  order: {
-    id: string
-    restaurant: {
-      name: string
-      icon: string
-    }
-    customer: string
-    items: string
-    tip: number
-    distance: string
-    location: string
-    timeAgo: string
-    isFriend?: boolean
-  }
-  onAccept: (orderId: string) => void
+export interface PostingRowData {
+  id: string
+  restaurant: { name: string }
+  items: string
+  tip: number
+  distance: string
+  location: string
+  timeAgo: string
 }
 
-const OrderCard: React.FC<OrderCardProps> = ({ order, onAccept }) => {
-  return (
-    <Card className="order-card">
-      <CardContent className="p-4">
-        {/* Header with Restaurant and Friend Badge */}
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center space-x-2">
-            <span className="text-2xl">{order.restaurant.icon}</span>
-            <div>
-              <h3 className="font-semibold text-foreground">{order.restaurant.name}</h3>
-              <p className="text-sm text-muted-foreground">{order.customer}</p>
-            </div>
-          </div>
-          {order.isFriend && (
-            <Badge className="friend-badge">
-              <Star className="h-3 w-3 mr-1" />
-              FRIEND
-            </Badge>
-          )}
+interface OrderCardProps {
+  order: PostingRowData
+  onAccept: (orderId: string) => void
+  accepting?: boolean
+  /**
+   * The single dominant opportunity at the top of the board gets the
+   * large treatment — display-serif identity, the tip as an oversized
+   * numeral, a full-size Take button. Everything else on the board is
+   * the compact row. Same ruled, unboxed object either way; only the
+   * scale changes, deliberately, per the featured/list split on Home.
+   */
+  featured?: boolean
+}
+
+const OrderCard: React.FC<OrderCardProps> = ({ order, onAccept, accepting = false, featured = false }) => {
+  if (featured) {
+    return (
+      <div className="flex flex-col gap-6 py-2 sm:flex-row sm:items-end sm:justify-between sm:gap-8">
+        <div className="min-w-0">
+          <Text variant="dataLg" tone="signalDeep" className="block tabular-nums">
+            ₹{order.tip}
+          </Text>
+          <Text variant="displaySm" as="p" className="mt-2 block">
+            {order.items}
+          </Text>
+          <Text variant="body" tone="muted" className="mt-2 block">
+            {order.restaurant.name} → {order.location}
+          </Text>
+          <Text variant="caption" tone="faint" className="mt-1 block">
+            {order.distance} · posted {order.timeAgo}
+          </Text>
         </div>
 
-        {/* Order Details */}
-        <div className="space-y-2 mb-4">
-          <p className="text-sm font-medium">{order.items}</p>
-          <div className="flex items-center justify-end">
-            <Badge className="tip-badge">
-              ₹{order.tip} tip
-            </Badge>
-          </div>
-        </div>
-
-        {/* Location and Time */}
-        <div className="space-y-2 mb-4">
-          <div className="flex items-center text-sm text-muted-foreground">
-            <MapPin className="h-4 w-4 mr-1" />
-            <span>{order.distance} • {order.location}</span>
-          </div>
-          <div className="flex items-center text-sm text-muted-foreground">
-            <Clock className="h-4 w-4 mr-1" />
-            <span>{order.timeAgo}</span>
-          </div>
-        </div>
-
-        {/* Accept Button */}
-        <Button 
+        <Button
           onClick={() => onAccept(order.id)}
-          className="w-full btn-campus-primary"
+          loading={accepting}
+          size="lg"
+          className="w-full shrink-0 rounded-sm sm:w-auto"
         >
-          Accept Order
+          Take this run
         </Button>
-      </CardContent>
-    </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-[64px_1fr_auto] items-center gap-4 py-3.5 sm:grid-cols-[88px_1fr_auto] sm:gap-5">
+      <Text variant="data" tone="signalDeep" className="tabular-nums">
+        ₹{order.tip}
+      </Text>
+
+      <div className="min-w-0">
+        <Text variant="body" className="block font-semibold text-foreground">
+          {order.items}
+        </Text>
+        <Text variant="bodySm" tone="muted" className="mt-0.5 block truncate">
+          {order.restaurant.name} → {order.location}
+        </Text>
+        <Text variant="caption" tone="faint" className="mt-1 block">
+          {order.distance} · posted {order.timeAgo}
+        </Text>
+      </div>
+
+      <Button
+        onClick={() => onAccept(order.id)}
+        loading={accepting}
+        size="sm"
+        className="rounded-sm"
+      >
+        Take
+      </Button>
+    </div>
   )
 }
 
