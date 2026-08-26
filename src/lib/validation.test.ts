@@ -68,11 +68,48 @@ describe('PostOrderSchema', () => {
     tip_amount: 30,
     delivery_location: { type: 'hostel' as const, label: "Men's Hostel K", hostelType: 'mens' as const, block: 'K' },
     distance_km: 1.2,
+    pickup_point_id: '22222222-2222-2222-2222-222222222222',
+    delivery_point_id: '33333333-3333-3333-3333-333333333333',
+    custom_delivery_lat: null,
+    custom_delivery_lng: null,
+    custom_delivery_note: null,
     status: 'pending' as const,
   }
 
   it('accepts a valid order', () => {
     expect(PostOrderSchema.safeParse(valid).success).toBe(true)
+  })
+
+  it('accepts null distance_km/pickup_point_id/delivery_point_id (unseeded campus points)', () => {
+    expect(PostOrderSchema.safeParse({
+      ...valid,
+      distance_km: null,
+      pickup_point_id: null,
+      delivery_point_id: null,
+    }).success).toBe(true)
+  })
+
+  it('rejects a non-uuid delivery_point_id', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, delivery_point_id: 'not-a-uuid' }).success).toBe(false)
+  })
+
+  it('accepts a custom pin (lat/lng/note) in place of delivery_point_id', () => {
+    const result = PostOrderSchema.safeParse({
+      ...valid,
+      delivery_point_id: null,
+      custom_delivery_lat: 12.9705,
+      custom_delivery_lng: 79.1601,
+      custom_delivery_note: 'Outside TT Tower, near the north entrance',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an out-of-range custom_delivery_lat', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, custom_delivery_lat: 999 }).success).toBe(false)
+  })
+
+  it('rejects a custom_delivery_note over 300 characters', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, custom_delivery_note: 'x'.repeat(301) }).success).toBe(false)
   })
 
   it('rejects an empty items array', () => {

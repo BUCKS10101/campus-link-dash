@@ -6,23 +6,34 @@ import { useNavigate } from 'react-router-dom'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/hooks/useAuth'
 import { useOrders } from '@/hooks/useOrders'
+import { useCampusPoints, CAMPUS_POINT_CATEGORIES } from '@/hooks/useCampusPoints'
 import { getErrorMessage, cn } from '@/lib/utils'
-import { parseOrderItemsInput } from '@/lib/orderContent'
+import { parseOrderItemsInput, formatRouteEstimate } from '@/lib/orderContent'
 import type { DeliveryLocation } from '@/lib/orderContent'
+import type { CampusPointKind } from '@/lib/database-types'
 import { Text, Rule } from '@/components/primitives'
 import { createTimeline, DURATION, EASE } from '@/lib/motion/gsap'
 
+const CampusMap = React.lazy(() => import('@/components/map/CampusMap'))
+
+// Restaurant display names match their campus_points.label - see
+// PHASE3_3A_LOCATION_SPEC.md §13 (Campus Store -> Balaji Store alias; the
+// stable key stays 'campus-store').
 const RESTAURANTS = [
-  { id: 'one-food', name: 'One Food' },
+  { id: 'one-food', name: 'One Food World' },
   { id: 'dc-cafe', name: 'DC Cafe' },
-  { id: 'campus-store', name: 'Campus Store' },
+  { id: 'campus-store', name: 'Balaji Store' },
 ]
 
-const HOSTEL_BLOCKS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T']
-
-const CAMPUS_LOCATIONS = ['TT Block', 'SJT Block', 'MB', 'PRP', 'GDN', 'Central Library', 'SMV', 'Academic Block']
-
 const TIP_PRESETS = [20, 30, 50, 75, 100]
+
+// Men's Hostel and Ladies Hostel blocks sharing a letter (e.g. "A") are
+// REAL, physically distinct locations with their own campus_points row
+// and coordinates - CampusPoint.wing is the geographic source of truth
+// here, not a display convenience. See PHASE3_3A_LOCATION_SPEC.md's
+// Accommodation correction. "Annex / Other" covers both genuinely
+// wingless points (MGB, the Annexes) and any accommodation point whose
+// wing hasn't been confirmed yet (wing: null either way) - never guessed.
 
 const STEP_META = [
   { title: 'What', subtitle: "What are you asking someone to pick up?" },
@@ -63,16 +74,19 @@ const ToggleButton = ({ selected, onClick, children, className }: { selected: bo
   </button>
 )
 
-const randomDistance = () => Math.random() * 2 + 0.5
-const calculateSuggestedTip = (distance: number) => Math.round(distance * 20)
-
 const initialFormData = {
   restaurant: '',
   orderDescription: '',
-  locationType: '',
-  hostelType: '',
-  block: '',
-  campusLocation: '',
+  // 'catalog': locationPointId names a campus_points row. 'custom': a
+  // dropped pin, customLat/Lng/Note. See PHASE3_3A_LOCATION_SPEC.md §14/§16.
+  locationMode: '' as '' | 'catalog' | 'custom',
+  locationCategory: '' as '' | CampusPointKind,
+  // Accommodation-only filter - a real geographic distinction (CampusPoint.wing), not cosmetic.
+  accommodationWing: '' as '' | 'mens' | 'ladies' | 'other',
+  locationPointId: '',
+  customLat: null as number | null,
+  customLng: null as number | null,
+  customNote: '',
   tip: [30] as number[],
 }
 
@@ -80,7 +94,8 @@ const PostRequest = () => {
   const navigate = useNavigate()
   const { toast } = useToast()
   const { user } = useAuth()
-  const { createOrder } = useOrders()
+  const { createOrder, computeWalkingRoute, computeWalkingRouteCustom } = useOrders()
+  const { byKey: byCampusPointKey, byCategory, byWing, points: campusPoints } = useCampusPoints()
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [attemptedAdvance, setAttemptedAdvance] = useState(false)
@@ -89,11 +104,43 @@ const PostRequest = () => {
   const topRef = useRef<HTMLDivElement>(null)
   const successRef = useRef<HTMLDivElement>(null)
 
-  // Computed once per mount (and again on "post another"), not on every
-  // render - Math.random() in the render body would reshuffle the tip
-  // suggestion on every keystroke.
-  const [distance, setDistance] = useState(randomDistance)
-  const suggestedTip = calculateSuggestedTip(distance)
+  // Real, server-computed walking-route distance - null until BOTH the
+  // pickup and delivery selection resolve to a campus_points row with a
+  // seeded coordinate (most don't yet - see
+  // PHASE3_3A_ARCHITECTURE_PROPOSAL.md). Never fabricated: no distance/
+  // reward-suggestion line renders at all while this is null, rather than
+  // showing a fake number. compute_walking_route() itself falls back to
+  // straight-line distance when a real route can't be found (sparse graph
+  // coverage) - this is still the real distance either way, just possibly
+  // not path-following; see PHASE3_3A_ARCHITECTURE_REVISION.md.
+  const pickupPoint = formData.restaurant ? byCampusPointKey(formData.restaurant) : undefined
+  const deliveryPoint = formData.locationMode === 'catalog' && formData.locationPointId
+    ? campusPoints.find((p) => p.id === formData.locationPointId)
+    : undefined
+  const hasCustomPin = formData.locationMode === 'custom' && formData.customLat != null && formData.customLng != null
+  const [resolvedRoute, setResolvedRoute] = useState<{ distanceKm: number; geometry: GeoJSON.LineString | null; etaMinutes: number } | null>(null)
+  const resolvedDistance = resolvedRoute?.distanceKm ?? null
+
+  useEffect(() => {
+    if (!pickupPoint) {
+      setResolvedRoute(null)
+      return
+    }
+    let cancelled = false
+    if (deliveryPoint) {
+      computeWalkingRoute(pickupPoint.id, deliveryPoint.id).then((route) => {
+        if (!cancelled) setResolvedRoute(route)
+      })
+    } else if (hasCustomPin) {
+      computeWalkingRouteCustom(pickupPoint.id, formData.customLat!, formData.customLng!).then((route) => {
+        if (!cancelled) setResolvedRoute(route)
+      })
+    } else {
+      setResolvedRoute(null)
+    }
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickupPoint?.id, deliveryPoint?.id, hasCustomPin, formData.customLat, formData.customLng])
 
   useEffect(() => {
     topRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
@@ -127,9 +174,13 @@ const PostRequest = () => {
 
   const items = parseOrderItemsInput(formData.orderDescription)
   const selectedRestaurant = RESTAURANTS.find((r) => r.id === formData.restaurant)
-  const locationLabel = formData.locationType === 'hostels'
-    ? (formData.block ? `${formData.hostelType === 'mens' ? "Men's" : 'Ladies'} Hostel ${formData.block}` : '')
-    : formData.campusLocation
+  // Each accommodation point already carries its own correct label
+  // (e.g. a Men's Hostel A row is labelled "Men's Hostel A" directly,
+  // once its real coordinate is confirmed) - no client-side label
+  // synthesis needed, since wing is real geographic identity on the
+  // point itself, not a presentation layer over a shared block.
+  const locationLabel = deliveryPoint?.label
+    ?? (hasCustomPin ? (formData.customNote.trim() || 'Custom pin') : '')
 
   const getStepIssue = (step: number): string | null => {
     switch (step) {
@@ -138,9 +189,10 @@ const PostRequest = () => {
         if (items.length === 0) return 'Add at least one item.'
         return null
       case 2:
-        if (!formData.locationType) return 'Pick a hostel or a campus location.'
-        if (formData.locationType === 'hostels' && (!formData.hostelType || !formData.block)) return 'Pick a hostel and a block.'
-        if (formData.locationType === 'campus' && !formData.campusLocation) return 'Pick a campus location.'
+        if (!formData.locationMode) return 'Pick a delivery location.'
+        if (formData.locationMode === 'catalog' && formData.locationCategory === 'accommodation' && !formData.accommodationWing) return 'Pick Men’s, Ladies, or Annex / Other.'
+        if (formData.locationMode === 'catalog' && !formData.locationPointId) return 'Pick a location from the list.'
+        if (formData.locationMode === 'custom' && !hasCustomPin) return 'Drop a pin on the map.'
         return null
       default:
         return null
@@ -151,7 +203,6 @@ const PostRequest = () => {
 
   const resetForm = () => {
     setFormData(initialFormData)
-    setDistance(randomDistance())
     setCurrentStep(1)
     setAttemptedAdvance(false)
     setPosted(null)
@@ -185,15 +236,12 @@ const PostRequest = () => {
       const restaurant = RESTAURANTS.find((r) => r.id === formData.restaurant)
       if (!restaurant) throw new Error('Please select a restaurant')
 
-      const deliveryLocation: DeliveryLocation = formData.locationType === 'hostels'
-        ? {
-            type: 'hostel',
-            label: `${formData.hostelType === 'mens' ? "Men's" : 'Ladies'} Hostel ${formData.block}`,
-            hostelType: formData.hostelType as 'mens' | 'ladies',
-            block: formData.block,
-          }
-        : { type: 'campus', label: formData.campusLocation }
-
+      // delivery_location (jsonb) stays populated for every order, catalog
+      // or custom pin, for backward-compatible display everywhere that
+      // already reads it - see PHASE3_3A_LOCATION_SPEC.md §16/§20. A
+      // custom pin's exact coordinate lives only in the dedicated
+      // custom_delivery_lat/lng columns below, never here.
+      const deliveryLocation: DeliveryLocation = { type: 'campus', label: locationLabel }
       if (!deliveryLocation.label) throw new Error('Please select a delivery location')
 
       await createOrder({
@@ -203,7 +251,12 @@ const PostRequest = () => {
         items,
         tip_amount: formData.tip[0],
         delivery_location: deliveryLocation,
-        distance_km: distance,
+        distance_km: resolvedDistance,
+        pickup_point_id: pickupPoint?.id ?? null,
+        delivery_point_id: deliveryPoint?.id ?? null,
+        custom_delivery_lat: hasCustomPin ? formData.customLat : null,
+        custom_delivery_lng: hasCustomPin ? formData.customLng : null,
+        custom_delivery_note: hasCustomPin ? (formData.customNote.trim() || null) : null,
         status: 'pending',
       })
 
@@ -238,9 +291,27 @@ const PostRequest = () => {
         {' → '}
         {locationLabel || <span className="opacity-60">Where&rsquo;s it going?</span>}
       </Text>
-      <Text variant="caption" tone="inherit" className="mt-1 block opacity-60">
-        {distance.toFixed(1)} km · similar runs go for around ₹{suggestedTip}
-      </Text>
+      {resolvedDistance != null && (
+        <>
+          <Text variant="caption" tone="inherit" className="mt-1 block opacity-60">
+            {formatRouteEstimate(resolvedRoute!)}
+          </Text>
+          {pickupPoint && (deliveryPoint || hasCustomPin) && (
+            <React.Suspense fallback={null}>
+              <CampusMap
+                className="mt-3 h-40 w-full"
+                pickup={{ lat: pickupPoint.lat, lng: pickupPoint.lng, label: pickupPoint.label }}
+                delivery={
+                  deliveryPoint
+                    ? { lat: deliveryPoint.lat, lng: deliveryPoint.lng, label: deliveryPoint.label }
+                    : { lat: formData.customLat!, lng: formData.customLng!, label: 'Custom pin' }
+                }
+                route={resolvedRoute!.geometry}
+              />
+            </React.Suspense>
+          )}
+        </>
+      )}
     </div>
   )
 
@@ -310,72 +381,117 @@ const PostRequest = () => {
       case 2:
         return (
           <div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {CAMPUS_POINT_CATEGORIES.map((c) => (
+                <ToggleButton
+                  key={c.kind}
+                  selected={formData.locationMode === 'catalog' && formData.locationCategory === c.kind}
+                  onClick={() => setFormData({ ...formData, locationMode: 'catalog', locationCategory: c.kind, accommodationWing: '', locationPointId: '' })}
+                >
+                  {c.label}
+                </ToggleButton>
+              ))}
               <ToggleButton
-                selected={formData.locationType === 'hostels'}
-                onClick={() => setFormData({ ...formData, locationType: 'hostels', campusLocation: '' })}
-                className="flex-1 text-center"
+                selected={formData.locationMode === 'custom'}
+                onClick={() => setFormData({ ...formData, locationMode: 'custom', locationCategory: '', accommodationWing: '', locationPointId: '' })}
               >
-                Hostels
-              </ToggleButton>
-              <ToggleButton
-                selected={formData.locationType === 'campus'}
-                onClick={() => setFormData({ ...formData, locationType: 'campus', hostelType: '', block: '' })}
-                className="flex-1 text-center"
-              >
-                Campus
+                📍 Drop a pin
               </ToggleButton>
             </div>
 
-            {formData.locationType === 'hostels' && (
+            {formData.locationMode === 'catalog' && formData.locationCategory === 'accommodation' && (
               <div className="mt-5">
                 <div className="flex gap-2">
-                  {(['mens', 'ladies'] as const).map((t) => (
+                  {([
+                    ['mens', "Men's Hostel"],
+                    ['ladies', 'Ladies Hostel'],
+                    ['other', 'Annex / Other'],
+                  ] as const).map(([wing, label]) => (
                     <ToggleButton
-                      key={t}
-                      selected={formData.hostelType === t}
-                      onClick={() => setFormData({ ...formData, hostelType: t, block: '' })}
+                      key={wing}
+                      selected={formData.accommodationWing === wing}
+                      onClick={() => setFormData({ ...formData, accommodationWing: wing, locationPointId: '' })}
                       className="flex-1 text-center"
                     >
-                      {t === 'mens' ? "Men's" : 'Ladies'}
+                      {label}
                     </ToggleButton>
                   ))}
                 </div>
-                {formData.hostelType && (
-                  <div className="mt-4">
-                    <Text variant="label" tone="faint" as="div" className="mb-2">Block</Text>
-                    <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
-                      {HOSTEL_BLOCKS.map((block) => (
-                        <button
-                          key={block}
-                          type="button"
-                          onClick={() => setFormData({ ...formData, block })}
-                          aria-pressed={formData.block === block}
-                          className={cn(
-                            'aspect-square font-data text-body-sm font-medium transition-colors duration-fast ease-out',
-                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-                            formData.block === block ? 'bg-primary text-primary-foreground' : 'border border-border text-muted-foreground hover:text-foreground',
-                          )}
-                        >
-                          {block}
-                        </button>
+                {/* Men's/Ladies show the same full block list - there's no
+                    reliable per-letter gender source, so the wing only
+                    changes the label prefix applied on submit, not which
+                    blocks are offered. Annex/Other is the one real split:
+                    MGB and the Annexes are never lettered blocks. */}
+                {formData.accommodationWing && (() => {
+                  const wingPoints = byWing(formData.accommodationWing === 'other' ? null : formData.accommodationWing)
+                  return (
+                    <div className="mt-4">
+                      {wingPoints.length === 0 && <Text variant="bodySm" tone="faint">Nothing here yet.</Text>}
+                      {wingPoints.map((point, i) => (
+                        <React.Fragment key={point.id}>
+                          {i > 0 && <Rule />}
+                          <OptionRow
+                            selected={formData.locationPointId === point.id}
+                            onClick={() => setFormData({ ...formData, locationPointId: point.id })}
+                          >
+                            {point.label}
+                          </OptionRow>
+                        </React.Fragment>
                       ))}
                     </div>
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             )}
 
-            {formData.locationType === 'campus' && (
+            {formData.locationMode === 'catalog' && formData.locationCategory && formData.locationCategory !== 'accommodation' && (
               <div className="mt-5">
-                {CAMPUS_LOCATIONS.map((loc, i) => (
-                  <React.Fragment key={loc}>
+                {byCategory(formData.locationCategory).length === 0 && (
+                  <Text variant="bodySm" tone="faint">Nothing in this category yet.</Text>
+                )}
+                {byCategory(formData.locationCategory).map((point, i) => (
+                  <React.Fragment key={point.id}>
                     {i > 0 && <Rule />}
-                    <OptionRow selected={formData.campusLocation === loc} onClick={() => setFormData({ ...formData, campusLocation: loc })}>
-                      {loc}
+                    <OptionRow
+                      selected={formData.locationPointId === point.id}
+                      onClick={() => setFormData({ ...formData, locationPointId: point.id })}
+                    >
+                      {point.label}
                     </OptionRow>
                   </React.Fragment>
                 ))}
+              </div>
+            )}
+
+            {formData.locationMode === 'custom' && (
+              <div className="mt-5">
+                <Text variant="label" tone="faint" as="div" className="mb-2">Tap the map to drop a pin</Text>
+                <React.Suspense fallback={<div className="h-64 w-full bg-surface-sunken" aria-hidden="true" />}>
+                  <CampusMap
+                    className="h-64 w-full"
+                    pickup={pickupPoint ? { lat: pickupPoint.lat, lng: pickupPoint.lng, label: pickupPoint.label } : null}
+                    delivery={hasCustomPin ? { lat: formData.customLat!, lng: formData.customLng!, label: 'Custom pin' } : null}
+                    onSelectLocation={(lat, lng) => setFormData({ ...formData, customLat: lat, customLng: lng })}
+                  />
+                </React.Suspense>
+                <Text variant="caption" tone="faint" className="mt-2 block">
+                  {hasCustomPin ? 'Drag the pin to fine-tune it.' : 'Tap anywhere on the map to place the pin.'}
+                </Text>
+
+                <Text as="label" variant="label" tone="faint" htmlFor="custom-note" className="mb-2 mt-5 block">
+                  Note for the deliverer
+                </Text>
+                <Textarea
+                  id="custom-note"
+                  placeholder="e.g. Outside TT Tower, near the north entrance"
+                  value={formData.customNote}
+                  onChange={(e) => setFormData({ ...formData, customNote: e.target.value })}
+                  className="min-h-20 font-body"
+                  maxLength={300}
+                />
+                <Text variant="caption" tone="faint" className="mt-1 block">
+                  For finding the exact spot — this doesn&rsquo;t affect the route.
+                </Text>
               </div>
             )}
           </div>
@@ -411,9 +527,11 @@ const PostRequest = () => {
               <Text variant="caption" tone="faint">₹200</Text>
             </div>
 
-            <Text variant="caption" tone="faint" className="mt-4 block">
-              {distance.toFixed(1)} km · similar runs go for around ₹{suggestedTip}
-            </Text>
+            {resolvedDistance != null && (
+              <Text variant="caption" tone="faint" className="mt-4 block">
+                {formatRouteEstimate(resolvedRoute!)}
+              </Text>
+            )}
           </div>
         )
 

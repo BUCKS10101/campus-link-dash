@@ -75,6 +75,11 @@ describe('createOrder', () => {
         tip_amount: 30,
         delivery_location: { type: 'campus', label: 'TT Block' },
         distance_km: 1.2,
+        pickup_point_id: null,
+        delivery_point_id: null,
+        custom_delivery_lat: null,
+        custom_delivery_lng: null,
+        custom_delivery_note: null,
         status: 'pending',
       })
     })
@@ -293,5 +298,81 @@ describe('OTP verification', () => {
 
     expect(code).toBe('654321')
     expect(supabaseMock.rpc).toHaveBeenCalledWith('get_my_order_otp', { p_order_id: 'order-1' })
+  })
+})
+
+describe('computeDistance', () => {
+  it('returns the server-computed distance for two seeded campus points', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: 0.9, error: null })
+
+    const { result } = renderHook(() => useOrders())
+
+    let km: number | null = null
+    await act(async () => {
+      km = await result.current.computeDistance('pickup-id', 'delivery-id')
+    })
+
+    expect(km).toBe(0.9)
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('compute_order_distance', {
+      p_pickup_id: 'pickup-id',
+      p_delivery_id: 'delivery-id',
+    })
+  })
+
+  // Normal, expected case for most current point combinations - most of the
+  // ~31 named pickup/hostel/landmark options aren't seeded yet (see
+  // PHASE3_3A_ARCHITECTURE_PROPOSAL.md), so the RPC's "Unknown or inactive"
+  // exception is routine, not a bug. Must resolve to null, not throw -
+  // callers show no distance line rather than an error toast for this.
+  it('returns null instead of throwing when a point has no seeded coordinate yet', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: null, error: { message: 'Unknown or inactive pickup point' } })
+
+    const { result } = renderHook(() => useOrders())
+
+    let km: number | null = 999
+    await act(async () => {
+      km = await result.current.computeDistance('pickup-id', 'delivery-id')
+    })
+
+    expect(km).toBeNull()
+  })
+})
+
+describe('computeWalkingRoute', () => {
+  it('returns the real route distance, geometry, and ETA for two seeded points', async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: [{ distance_km: 0.86, geometry: { type: 'LineString', coordinates: [[79.16, 12.97], [79.165, 12.974]] }, eta_minutes: 10.3 }],
+      error: null,
+    })
+
+    const { result } = renderHook(() => useOrders())
+
+    let route: Awaited<ReturnType<typeof result.current.computeWalkingRoute>> = null
+    await act(async () => {
+      route = await result.current.computeWalkingRoute('pickup-id', 'delivery-id')
+    })
+
+    expect(route).toEqual({
+      distanceKm: 0.86,
+      geometry: { type: 'LineString', coordinates: [[79.16, 12.97], [79.165, 12.974]] },
+      etaMinutes: 10.3,
+    })
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('compute_walking_route', {
+      p_pickup_id: 'pickup-id',
+      p_delivery_id: 'delivery-id',
+    })
+  })
+
+  it('returns null instead of throwing when a point has no seeded coordinate yet', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: null, error: { message: 'Unknown or inactive pickup point' } })
+
+    const { result } = renderHook(() => useOrders())
+
+    let route: Awaited<ReturnType<typeof result.current.computeWalkingRoute>> = { distanceKm: 999, geometry: null, etaMinutes: 999 }
+    await act(async () => {
+      route = await result.current.computeWalkingRoute('pickup-id', 'delivery-id')
+    })
+
+    expect(route).toBeNull()
   })
 })
