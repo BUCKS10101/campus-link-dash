@@ -7,7 +7,11 @@ import {
   rankHighReward,
   rankFeatured,
   MIN_DISTANCE_KM,
+  filterByLocation,
+  matchesLocationFilter,
+  isLocationFilterActive,
   type RankableOrder,
+  type LocationFilterableOrder,
 } from './ranking'
 
 const order = (overrides: Partial<RankableOrder> & { id: string }): RankableOrder => ({
@@ -152,5 +156,74 @@ describe('rankFeatured', () => {
 
   it('is null for an empty board', () => {
     expect(rankFeatured([])).toBeNull()
+  })
+})
+
+const BALAJI = 'balaji-store-id'
+const TT = 'tt-id'
+const SJT = 'sjt-id'
+
+const locOrder = (overrides: Partial<LocationFilterableOrder> & { id: string }): LocationFilterableOrder => ({
+  pickup_point_id: null,
+  delivery_point_id: null,
+  ...overrides,
+})
+
+describe('isLocationFilterActive / matchesLocationFilter', () => {
+  it('is inactive when both sides are null', () => {
+    expect(isLocationFilterActive({ pickupPointId: null, deliveryPointId: null })).toBe(false)
+  })
+
+  it('is active when either side is set', () => {
+    expect(isLocationFilterActive({ pickupPointId: BALAJI, deliveryPointId: null })).toBe(true)
+    expect(isLocationFilterActive({ pickupPointId: null, deliveryPointId: TT })).toBe(true)
+  })
+
+  it('an order with no pickup/delivery point can never match a specific filter', () => {
+    const legacy = locOrder({ id: 'legacy' })
+    expect(matchesLocationFilter(legacy, { pickupPointId: BALAJI, deliveryPointId: null })).toBe(false)
+    expect(matchesLocationFilter(legacy, { pickupPointId: null, deliveryPointId: TT })).toBe(false)
+  })
+
+  it('matches when no filter is set at all, regardless of the order', () => {
+    const legacy = locOrder({ id: 'legacy' })
+    const resolved = locOrder({ id: 'resolved', pickup_point_id: BALAJI, delivery_point_id: TT })
+    const filter = { pickupPointId: null, deliveryPointId: null }
+    expect(matchesLocationFilter(legacy, filter)).toBe(true)
+    expect(matchesLocationFilter(resolved, filter)).toBe(true)
+  })
+})
+
+describe('filterByLocation', () => {
+  const balajiToTT = locOrder({ id: 'balaji-tt', pickup_point_id: BALAJI, delivery_point_id: TT })
+  const balajiToSjt = locOrder({ id: 'balaji-sjt', pickup_point_id: BALAJI, delivery_point_id: SJT })
+  const sjtToTT = locOrder({ id: 'sjt-tt', pickup_point_id: SJT, delivery_point_id: TT })
+  const legacy = locOrder({ id: 'legacy' })
+  const board = [balajiToTT, balajiToSjt, sjtToTT, legacy]
+
+  it('From only: shows every order picked up at that point', () => {
+    const result = filterByLocation(board, { pickupPointId: BALAJI, deliveryPointId: null })
+    expect(result.map((o) => o.id).sort()).toEqual(['balaji-sjt', 'balaji-tt'])
+  })
+
+  it('To only: shows every order going to that point', () => {
+    const result = filterByLocation(board, { pickupPointId: null, deliveryPointId: TT })
+    expect(result.map((o) => o.id).sort()).toEqual(['balaji-tt', 'sjt-tt'])
+  })
+
+  it('From + To: shows only the exact pickup-to-delivery pair', () => {
+    const result = filterByLocation(board, { pickupPointId: BALAJI, deliveryPointId: TT })
+    expect(result.map((o) => o.id)).toEqual(['balaji-tt'])
+  })
+
+  it('clearing the filter (both null) returns every order, including legacy/unresolved ones', () => {
+    const result = filterByLocation(board, { pickupPointId: null, deliveryPointId: null })
+    expect(result.map((o) => o.id).sort()).toEqual(['balaji-sjt', 'balaji-tt', 'legacy', 'sjt-tt'])
+  })
+
+  it('a legacy/unresolved order (no pickup/delivery point) never matches a specific From/To filter', () => {
+    expect(filterByLocation(board, { pickupPointId: BALAJI, deliveryPointId: null }).some((o) => o.id === 'legacy')).toBe(false)
+    expect(filterByLocation(board, { pickupPointId: null, deliveryPointId: TT }).some((o) => o.id === 'legacy')).toBe(false)
+    expect(filterByLocation(board, { pickupPointId: BALAJI, deliveryPointId: TT }).some((o) => o.id === 'legacy')).toBe(false)
   })
 })

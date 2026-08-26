@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import OrderCard from '@/components/orders/OrderCard'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertCircle } from 'lucide-react'
@@ -9,10 +10,14 @@ import { useOrders } from '@/hooks/useOrders'
 import { useToast } from '@/hooks/use-toast'
 import { useNavigate, Link } from 'react-router-dom'
 import { formatOrderItems, formatDeliveryLocation, formatOrderDistance } from '@/lib/orderContent'
-import { rankQuickErrands, rankHighReward, rankFeatured, hasUsableDistance } from '@/lib/ranking'
+import { rankQuickErrands, rankHighReward, rankFeatured, hasUsableDistance, filterByLocation, isLocationFilterActive, type LocationFilter } from '@/lib/ranking'
+import { useCampusPoints } from '@/hooks/useCampusPoints'
+import { WhereFilter } from '@/components/home/WhereFilter'
 import { Rule, Text } from '@/components/primitives'
 import { getErrorMessage } from '@/lib/utils'
 import type { OrderWithProfiles } from '@/lib/database-types'
+
+const NO_LOCATION_FILTER: LocationFilter = { pickupPointId: null, deliveryPointId: null }
 
 // "Nearby" is deliberately not a filter name here: nothing in the app
 // knows where the viewing student actually is (profiles.hostel_block is
@@ -80,7 +85,12 @@ const Home = () => {
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
   const { orders, loading, error, fetchOrders, acceptOrder, subscribeToOrders } = useOrders()
+  // Campus points for the Where search fields only - one small reference
+  // fetch on mount (already used elsewhere, e.g. PostRequest), never
+  // re-fetched on a filter change, and never touches MapLibre.
+  const { points: campusPoints } = useCampusPoints()
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all')
+  const [locationFilter, setLocationFilter] = useState<LocationFilter>(NO_LOCATION_FILTER)
   const [acceptingId, setAcceptingId] = useState<string | null>(null)
   // Only the very first load blanks the whole page - a filter change
   // refetches too (same `loading` flag) but should never make the header
@@ -109,29 +119,50 @@ const Home = () => {
     if (!loading && !hasLoadedOnce) setHasLoadedOnce(true)
   }, [loading, hasLoadedOnce])
 
+  // Where (From/To) is applied first, client-side, over the one
+  // already-fetched feed - never a separate query. Every downstream
+  // grouping (featured/Quick errands/High reward/All) operates on this
+  // already-narrowed list, so the two kinds of filter always compose
+  // instead of fighting - see PHASE3_3B_NEARBY_DISCOVERY_SPEC.md's Where
+  // follow-up notes.
+  const locationFilteredOrders = useMemo(
+    () => filterByLocation(orders, locationFilter),
+    [orders, locationFilter],
+  )
+
   // The dominant opportunity up top is the best real deal on the board
   // right now: highest reward_density where any order has a usable
   // distance, otherwise highest tip (rankFeatured handles both) - never
   // a separate rule from what "High reward" itself ranks by.
-  const featuredOrder = useMemo(() => rankFeatured(orders), [orders])
+  const featuredOrder = useMemo(() => rankFeatured(locationFilteredOrders), [locationFilteredOrders])
 
   const restOrders = useMemo(
-    () => orders.filter((o) => o.id !== featuredOrder?.id),
-    [orders, featuredOrder],
+    () => locationFilteredOrders.filter((o) => o.id !== featuredOrder?.id),
+    [locationFilteredOrders, featuredOrder],
   )
 
-  // Ranked over the full board, not restOrders - switching to Quick
-  // errands/High reward should show the complete, honestly-ranked list
-  // (including whatever's also featured above in the All view), not
-  // silently drop whichever order happens to be featured right now.
-  const quickErrandOrders = useMemo(() => rankQuickErrands(orders), [orders])
-  const highRewardOrders = useMemo(() => rankHighReward(orders), [orders])
+  // Ranked over the full (location-filtered) board, not restOrders -
+  // switching to Quick errands/High reward should show the complete,
+  // honestly-ranked list (including whatever's also featured above in
+  // the All view), not silently drop whichever order happens to be
+  // featured right now.
+  const quickErrandOrders = useMemo(() => rankQuickErrands(locationFilteredOrders), [locationFilteredOrders])
+  const highRewardOrders = useMemo(() => rankHighReward(locationFilteredOrders), [locationFilteredOrders])
 
   const filters: { key: FilterKey; label: string; count: number }[] = [
-    { key: 'all', label: 'All', count: orders.length },
+    { key: 'all', label: 'All', count: locationFilteredOrders.length },
     { key: 'quick-errands', label: 'Quick errands', count: quickErrandOrders.length },
     { key: 'high-reward', label: 'High reward', count: highRewardOrders.length },
   ]
+
+  const pointLabelById = useMemo(() => new Map(campusPoints.map((p) => [p.id, p.label])), [campusPoints])
+  const locationFilterSummary = useMemo(() => {
+    if (!isLocationFilterActive(locationFilter)) return null
+    const parts: string[] = []
+    if (locationFilter.pickupPointId) parts.push(`From: ${pointLabelById.get(locationFilter.pickupPointId) ?? 'Unknown'}`)
+    if (locationFilter.deliveryPointId) parts.push(`To: ${pointLabelById.get(locationFilter.deliveryPointId) ?? 'Unknown'}`)
+    return parts.join(' · ')
+  }, [locationFilter, pointLabelById])
 
   // Small, explainable reason chips - never an opaque score, and never
   // attached to more than the top handful of each ranked list. A reward
@@ -158,7 +189,13 @@ const Home = () => {
     return restOrders
   }, [activeFilter, restOrders, quickErrandOrders, highRewardOrders])
 
-  const totalTip = useMemo(() => orders.reduce((sum, o) => sum + o.tip_amount, 0), [orders])
+  // Reflects the currently-effective (location-filtered) view, not the
+  // raw board - showing "14 students need a hand" while a Where filter
+  // only matches 1 would be a contradictory state.
+  const totalTip = useMemo(
+    () => locationFilteredOrders.reduce((sum, o) => sum + o.tip_amount, 0),
+    [locationFilteredOrders],
+  )
 
   const handleAcceptOrder = async (orderId: string) => {
     if (!user) return
@@ -197,9 +234,9 @@ const Home = () => {
         <Text variant="label" tone="inherit" as="div" className="opacity-60">The board, live</Text>
         <div className="mt-5 flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
           <Text variant="display" accent tone="inherit" className="max-w-[16ch] block text-[2.75rem] leading-[0.98] sm:text-[3.5rem] md:text-[4rem]">
-            {orders.length === 0 && 'Nothing moving right now.'}
-            {orders.length === 1 && 'One student needs a hand.'}
-            {orders.length > 1 && `${orders.length} students need a hand.`}
+            {locationFilteredOrders.length === 0 && 'Nothing moving right now.'}
+            {locationFilteredOrders.length === 1 && 'One student needs a hand.'}
+            {locationFilteredOrders.length > 1 && `${locationFilteredOrders.length} students need a hand.`}
           </Text>
           {totalTip > 0 && (
             <div className="shrink-0 text-left md:text-right">
@@ -216,7 +253,7 @@ const Home = () => {
         </div>
       </div>
 
-      <div className="mt-8 flex items-center gap-1 rounded-sm border-b border-border bg-surface-sunken px-2 py-3 md:mt-10">
+      <div className="mt-8 flex flex-wrap items-center gap-1 rounded-sm border-b border-border bg-surface-sunken px-2 py-3 md:mt-10">
         {filters.map((filter) => (
           <button
             key={filter.key}
@@ -234,6 +271,15 @@ const Home = () => {
             <span className="ml-1.5 font-data text-caption tabular-nums opacity-70">{filter.count}</span>
           </button>
         ))}
+        <div className="ml-auto">
+          <WhereFilter
+            points={campusPoints}
+            value={locationFilter}
+            onApply={setLocationFilter}
+            onClear={() => setLocationFilter(NO_LOCATION_FILTER)}
+            summary={locationFilterSummary}
+          />
+        </div>
       </div>
 
       {/* Keyed on the active filter so a filter change cross-fades this
@@ -303,11 +349,24 @@ const Home = () => {
           </div>
         )}
 
-        {/* Never a decorative empty section - each filter gets its own
-            honest explanation for why nothing is showing, since "nothing
-            matches this filter" and "the whole board is empty" are
-            different facts. */}
-        {!error && visibleOrders.length === 0 && activeFilter === 'all' && featuredOrder && (
+        {/* Never a decorative empty section - each cause gets its own
+            honest explanation for why nothing is showing: a Where filter
+            matching nothing, "nothing matches this ranking filter", and
+            "the whole board is empty" are three different facts. The
+            Where case takes priority since it's the reason nothing else
+            below found anything either. */}
+        {!error && orders.length > 0 && locationFilteredOrders.length === 0 && (
+          <div className="flex flex-col items-start gap-3 py-10">
+            <Text variant="bodySm" tone="faint">
+              Nothing matches {locationFilterSummary} right now.
+            </Text>
+            <Button variant="outline" size="sm" onClick={() => setLocationFilter(NO_LOCATION_FILTER)}>
+              Clear location filter
+            </Button>
+          </div>
+        )}
+
+        {!error && locationFilteredOrders.length > 0 && visibleOrders.length === 0 && activeFilter === 'all' && featuredOrder && (
           <div className="flex flex-col items-start gap-3 py-10">
             <Text variant="bodySm" tone="faint">That's everything on the board right now.</Text>
             <Link
@@ -319,7 +378,7 @@ const Home = () => {
           </div>
         )}
 
-        {!error && orders.length > 0 && visibleOrders.length === 0 && activeFilter === 'quick-errands' && (
+        {!error && locationFilteredOrders.length > 0 && visibleOrders.length === 0 && activeFilter === 'quick-errands' && (
           <div className="py-10">
             <Text variant="bodySm" tone="faint">
               Nothing on the board right now has a real distance to judge — check back soon, or try All.
@@ -327,7 +386,7 @@ const Home = () => {
           </div>
         )}
 
-        {!error && orders.length > 0 && visibleOrders.length === 0 && activeFilter === 'high-reward' && (
+        {!error && locationFilteredOrders.length > 0 && visibleOrders.length === 0 && activeFilter === 'high-reward' && (
           <div className="py-10">
             <Text variant="bodySm" tone="faint">Nothing left to rank — try All.</Text>
           </div>
