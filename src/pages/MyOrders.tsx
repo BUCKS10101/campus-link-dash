@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { AlertCircle, ChevronDown } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useOrders, type WalkingRoute } from '@/hooks/useOrders'
 import { useToast } from '@/hooks/use-toast'
@@ -603,6 +603,7 @@ const MyOrders = () => {
   const { toast } = useToast()
   const { user, loading: authLoading } = useAuth()
   const { orders, loading, error, fetchOrders, updateOrderStatus, getMyOrderOtp, verifyDeliveryOtp, computeWalkingRoute, computeWalkingRouteCustom } = useOrders()
+  const [searchParams] = useSearchParams()
   const [expandedRequesterId, setExpandedRequesterId] = useState<string | null>(null)
   const [expandedDelivererId, setExpandedDelivererId] = useState<string | null>(null)
   // Only the very first load shows the full skeleton - refetch() after
@@ -617,6 +618,17 @@ const MyOrders = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
+
+  // Deep-link from a notification's click-through (?order=<id>) - opens
+  // whichever lane that order actually belongs to for this viewer.
+  useEffect(() => {
+    const targetId = searchParams.get('order')
+    if (!targetId || !user) return
+    const target = orders.find((o) => o.id === targetId)
+    if (!target) return
+    if (target.requester_id === user.user.id) setExpandedRequesterId(targetId)
+    if (target.deliverer_id === user.user.id) setExpandedDelivererId(targetId)
+  }, [searchParams, orders, user])
 
   useEffect(() => {
     if (!loading && !hasLoadedOnce) setHasLoadedOnce(true)

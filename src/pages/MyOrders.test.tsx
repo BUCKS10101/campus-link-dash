@@ -27,6 +27,19 @@ vi.mock('@/hooks/useChat', () => ({
   useChat: () => ({ messages: [], loading: false, error: null, sendMessage: mockSendMessage }),
 }))
 
+vi.mock('@/hooks/useNotifications', () => ({
+  useNotifications: () => ({
+    notifications: [],
+    unreadCount: 0,
+    loading: false,
+    hasMore: false,
+    loadMore: vi.fn(),
+    markRead: vi.fn(),
+    markAllRead: vi.fn(),
+    markOrderChatRead: vi.fn(),
+  }),
+}))
+
 const { default: MyOrders } = await import('./MyOrders')
 
 const AUTH_USER = { user: { id: 'customer-1', email: 'a@b.com' }, profile: null }

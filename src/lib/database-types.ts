@@ -127,3 +127,40 @@ export interface OrderWithProfiles extends Order {
 export interface ChatMessageWithProfile extends ChatMessage {
   sender_profile: Profile
 }
+
+/**
+ * Phase 3C - see PHASE3_3C_NOTIFICATIONS_SPEC.md. Rows are never written
+ * by the client (no insert/delete grant exists on this table - see
+ * supabase/migrations/20260827200000_notifications.sql and its follow-up
+ * privilege fix); only read and mark-read (`read_at`) are ever performed
+ * here. `type` mirrors the table's CHECK constraint exactly - only these
+ * five events are ever produced by the two SECURITY DEFINER triggers.
+ */
+export type NotificationType =
+  | 'order_accepted'
+  | 'order_picked_up'
+  | 'order_out_for_delivery'
+  | 'order_delivered'
+  | 'new_chat_message'
+
+export interface Notification {
+  id: string
+  recipient_id: string
+  type: NotificationType
+  order_id: string
+  read_at: string | null
+  created_at: string
+}
+
+/**
+ * The display text for a notification is always derived from the order
+ * it's about (restaurant_name), never stored - same "derive, don't store"
+ * discipline as formatOrderItems/formatDeliveryLocation in orderContent.ts.
+ * `order` is null only if the underlying order row was deleted after the
+ * notification was created (on delete cascade removes the notification
+ * too, so in practice this is never null - kept nullable because the
+ * embedded-resource shape is technically optional).
+ */
+export interface NotificationWithOrder extends Notification {
+  order: { restaurant_name: string } | null
+}

@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { NAV_ITEMS, isNavItemActive } from "./navConfig";
 import { NavItem } from "./NavItem";
 import { CreateAction } from "./CreateAction";
+import { useNotifications } from "@/hooks/useNotifications";
 
 /**
  * Bottom tab bar — the primary interaction surface on mobile. Fixed,
@@ -13,6 +14,7 @@ import { CreateAction } from "./CreateAction";
 export function MobileNav() {
   const location = useLocation();
   const items = NAV_ITEMS;
+  const { unreadCount } = useNotifications();
 
   return (
     <nav
@@ -26,7 +28,15 @@ export function MobileNav() {
           if (item.key === "create") {
             return <CreateAction key={item.key} href={item.href} variant="mobile" active={active} />;
           }
-          return <NavItem key={item.key} item={item} variant="mobile" active={active} />;
+          return (
+            <NavItem
+              key={item.key}
+              item={item}
+              variant="mobile"
+              active={active}
+              showUnreadDot={item.key === "activity" && unreadCount > 0}
+            />
+          );
         })}
       </div>
     </nav>
