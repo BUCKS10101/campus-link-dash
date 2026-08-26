@@ -25,6 +25,11 @@ vi.mock('@/hooks/useRatings', () => ({
   useRatings: () => ({ getProfileReputation: mockGetProfileReputation }),
 }))
 
+const mockFetchMyFriendships = vi.fn()
+vi.mock('@/hooks/useFriends', () => ({
+  useFriends: () => ({ fetchMyFriendships: mockFetchMyFriendships }),
+}))
+
 const { default: Profile } = await import('./Profile')
 
 const PROFILE = {
@@ -49,6 +54,7 @@ beforeEach(() => {
   mockUseAuth.mockReturnValue({ user: AUTH_USER, loading: false, updateProfile: mockUpdateProfile })
   mockUseTheme.mockReturnValue({ theme: 'light', setTheme: mockSetTheme })
   mockGetProfileReputation.mockResolvedValue({ avg_rating: null, rating_count: 0, completed_deliveries: 0 })
+  mockFetchMyFriendships.mockResolvedValue({ friends: [], received: [], sent: [] })
 })
 
 describe('Profile', () => {
@@ -90,11 +96,14 @@ describe('Profile', () => {
 
     it('still shows a real (zero) completed-deliveries count for a new account', async () => {
       mockGetProfileReputation.mockResolvedValue({ avg_rating: null, rating_count: 0, completed_deliveries: 0 })
+      // A distinct, non-zero friend count keeps this assertion unambiguous
+      // (the Friends row below also renders a plain count) - Phase 3E.
+      mockFetchMyFriendships.mockResolvedValue({ friends: [{}, {}], received: [], sent: [] })
       renderProfile()
 
       await screen.findByText('No ratings yet')
-      expect(screen.getByText('Completed deliveries')).toBeInTheDocument()
-      expect(screen.getByText('0')).toBeInTheDocument()
+      const label = screen.getByText('Completed deliveries')
+      expect(label.parentElement).toHaveTextContent('0')
     })
 
     it('uses singular "rating" for exactly one rating', async () => {
@@ -115,6 +124,22 @@ describe('Profile', () => {
   it('links into Activity instead of duplicating order management here', () => {
     renderProfile()
     expect(screen.getByRole('link', { name: /view activity/i })).toHaveAttribute('href', '/my-orders')
+  })
+
+  describe('friends (Phase 3E)', () => {
+    it('links into the dedicated Friends route instead of a social feed here', () => {
+      renderProfile()
+      expect(screen.getByRole('link', { name: /view friends/i })).toHaveAttribute('href', '/friends')
+    })
+
+    it('shows the real friend count once loaded', async () => {
+      mockFetchMyFriendships.mockResolvedValue({ friends: [{}, {}, {}], received: [], sent: [] })
+      renderProfile()
+
+      const label = await screen.findByText('Friends')
+      await waitFor(() => expect(label.parentElement).toHaveTextContent('3'))
+      expect(mockFetchMyFriendships).toHaveBeenCalledWith('user-1')
+    })
   })
 
   it('toggles dark mode via the real theme system', async () => {

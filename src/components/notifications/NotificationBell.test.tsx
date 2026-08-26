@@ -23,9 +23,11 @@ const NOTIFICATION = {
   recipient_id: 'u1',
   type: 'order_accepted' as const,
   order_id: 'order-1',
+  friendship_id: null,
   read_at: null,
   created_at: new Date().toISOString(),
   order: { restaurant_name: 'One Food World' },
+  friendship: null,
 }
 
 const baseState = {
@@ -116,5 +118,32 @@ describe('NotificationBell', () => {
     await userEvent.click(screen.getByLabelText('Notifications'))
     await screen.findByText('Someone accepted your One Food World order.')
     expect(screen.queryByText('Mark all read')).not.toBeInTheDocument()
+  })
+
+  it('a friend-request notification (order_id null) deep-links to /friends, not a random page (Phase 3E)', async () => {
+    const friendNotification = {
+      id: 'n2',
+      recipient_id: 'u1',
+      type: 'friend_request_received' as const,
+      order_id: null,
+      friendship_id: 'friendship-1',
+      read_at: null,
+      created_at: new Date().toISOString(),
+      order: null,
+      friendship: {
+        requester_id: 'someone-else',
+        addressee_id: 'u1',
+        requester_profile: { name: 'Alice' },
+        addressee_profile: { name: 'Me' },
+      },
+    }
+    mockUseNotifications.mockReturnValue({ ...baseState, unreadCount: 1, notifications: [friendNotification] })
+    renderBell()
+    await userEvent.click(screen.getByLabelText('Notifications, 1 unread'))
+
+    const row = await screen.findByText('Alice sent you a friend request.')
+    await userEvent.click(row)
+    expect(mockMarkRead).toHaveBeenCalledWith('n2')
+    expect(mockNavigate).toHaveBeenCalledWith('/friends')
   })
 })

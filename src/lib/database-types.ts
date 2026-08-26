@@ -105,17 +105,40 @@ export interface ChatMessage {
 }
 
 /**
- * Live schema is a request/accept model (requester_id, addressee_id,
- * status), but no friend-request/accept/decline/unfriend UI or handler
- * exists anywhere in the app - see the friendships RLS review. `status`
- * is typed loosely (no confirmed vocabulary) rather than as a union.
+ * Phase 3E - see PHASE3_3E_SOCIAL_GRAPH_SPEC.md. Only 'pending'/
+ * 'accepted' are ever persisted - decline/cancel/remove all delete the
+ * row instead of writing a third status (see the spec §3 for why).
+ * Never written directly by the client - the five SECURITY DEFINER RPCs
+ * (send_/accept_/decline_/cancel_friend_request, remove_friend) are the
+ * only write path. `requester_id`/`addressee_id` record who initiated
+ * the relationship (a harmless historical fact); once accepted, both
+ * sides are equally "friends" regardless of who sent the request.
  */
 export interface Friendship {
   id: string
   requester_id: string
   addressee_id: string
-  status: string
+  status: 'pending' | 'accepted'
   created_at: string
+}
+
+export interface FriendshipWithProfiles extends Friendship {
+  requester_profile: Profile
+  addressee_profile: Profile
+}
+
+/**
+ * The shape search_profiles() returns - name + the same blended
+ * reputation aggregate 3D already exposes, plus the caller's real
+ * relationship to this result (derived server-side, never guessed
+ * client-side). Never email/phone/hostel - see the spec §6.
+ */
+export interface SearchProfileResult {
+  id: string
+  name: string
+  avg_rating: number | null
+  rating_count: number
+  relationship: 'none' | 'pending_outgoing' | 'pending_incoming' | 'friends'
 }
 
 /**
@@ -165,8 +188,13 @@ export interface ChatMessageWithProfile extends ChatMessage {
  * by the client (no insert/delete grant exists on this table - see
  * supabase/migrations/20260827200000_notifications.sql and its follow-up
  * privilege fix); only read and mark-read (`read_at`) are ever performed
- * here. `type` mirrors the table's CHECK constraint exactly - only these
- * five events are ever produced by the two SECURITY DEFINER triggers.
+ * here. `type` mirrors the table's CHECK constraint exactly.
+ *
+ * Phase 3E added the two friend_request_* types and made order_id
+ * nullable - a notification is now either order-scoped (order_id set,
+ * friendship_id null) or friendship-scoped (the reverse), enforced by
+ * notifications_exactly_one_subject at the DB level. See
+ * PHASE3_3E_SOCIAL_GRAPH_SPEC.md §7.
  */
 export type NotificationType =
   | 'order_accepted'
@@ -174,25 +202,36 @@ export type NotificationType =
   | 'order_out_for_delivery'
   | 'order_delivered'
   | 'new_chat_message'
+  | 'friend_request_received'
+  | 'friend_request_accepted'
 
 export interface Notification {
   id: string
   recipient_id: string
   type: NotificationType
-  order_id: string
+  order_id: string | null
+  friendship_id: string | null
   read_at: string | null
   created_at: string
 }
 
 /**
  * The display text for a notification is always derived from the order
- * it's about (restaurant_name), never stored - same "derive, don't store"
+ * or friendship it's about, never stored - same "derive, don't store"
  * discipline as formatOrderItems/formatDeliveryLocation in orderContent.ts.
- * `order` is null only if the underlying order row was deleted after the
- * notification was created (on delete cascade removes the notification
- * too, so in practice this is never null - kept nullable because the
- * embedded-resource shape is technically optional).
+ * `order`/`friendship` are null only if the underlying row was deleted
+ * after the notification was created (on delete cascade removes the
+ * notification too, so in practice this is never null for a still-
+ * existing notification - kept nullable because the embedded-resource
+ * shape is technically optional). Exactly one of `order`/`friendship` is
+ * ever populated, matching `order_id`/`friendship_id`.
  */
 export interface NotificationWithOrder extends Notification {
   order: { restaurant_name: string } | null
+  friendship: {
+    requester_id: string
+    addressee_id: string
+    requester_profile: { name: string } | null
+    addressee_profile: { name: string } | null
+  } | null
 }

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { useAuth } from '@/hooks/useAuth'
 import { useRatings } from '@/hooks/useRatings'
+import { useFriends } from '@/hooks/useFriends'
 import { useToast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/utils'
 import { ProfileUpdateSchema } from '@/lib/validation'
@@ -144,14 +145,24 @@ const EditProfileDialog = ({
 const Profile = () => {
   const { user, loading: authLoading, updateProfile } = useAuth()
   const { getProfileReputation } = useRatings()
+  const { fetchMyFriendships } = useFriends()
   const { theme, setTheme } = useTheme()
   const [reputation, setReputation] = useState<ProfileReputation | null>(null)
+  const [friendCount, setFriendCount] = useState<number | null>(null)
 
   // One RPC call per Profile load - never blocks the rest of the page,
   // never re-fetched on every render. See PHASE3_3D_RATINGS_TRUST_SPEC.md §9.
   useEffect(() => {
     if (!user) return
     getProfileReputation(user.user.id).then(setReputation)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+
+  // One query per Profile load, same discipline - see
+  // PHASE3_3E_SOCIAL_GRAPH_SPEC.md §8/§16.
+  useEffect(() => {
+    if (!user) return
+    fetchMyFriendships(user.user.id).then(({ friends }) => setFriendCount(friends.length))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
@@ -231,7 +242,7 @@ const Profile = () => {
           />
         </div>
 
-        <div className="flex items-center justify-between py-6">
+        <div className="flex items-center justify-between border-b-2 border-foreground py-6">
           <div>
             <Text variant="h3" className="block">Activity</Text>
             <Text variant="caption" tone="muted" as="p" className="mt-0.5">What you've asked for and carried.</Text>
@@ -241,6 +252,21 @@ const Profile = () => {
             className="font-body text-body-sm font-semibold text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             View activity
+          </Link>
+        </div>
+
+        <div className="flex items-center justify-between py-6">
+          <div>
+            <Text variant="h3" className="block">Friends</Text>
+            <Text variant="caption" tone="muted" as="p" className="mt-0.5">
+              {friendCount != null ? friendCount : '—'}
+            </Text>
+          </div>
+          <Link
+            to="/friends"
+            className="font-body text-body-sm font-semibold text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            View friends
           </Link>
         </div>
       </div>
