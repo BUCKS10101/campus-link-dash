@@ -369,6 +369,9 @@ describe('PostRequest', () => {
         delivery_location: { type: 'campus', label: 'Block K' },
         status: 'pending',
         distance_km: 0.42,
+        // Default mock's geometry is null (see beforeEach) - a fallback
+        // estimate, never persisted as 'routed'.
+        distance_source: 'fallback',
         pickup_point_id: 'point-one-food',
         delivery_point_id: 'point-block-k',
         custom_delivery_lat: null,
@@ -379,6 +382,38 @@ describe('PostRequest', () => {
 
     await waitFor(() => expect(screen.getByText(/it.s on the board/i)).toBeInTheDocument())
     expect(screen.getByRole('button', { name: 'View on Activity' })).toBeInTheDocument()
+  })
+
+  it('persists distance_source: "routed" when the route has real geometry', async () => {
+    mockComputeWalkingRoute.mockResolvedValue({
+      distanceKm: 0.42,
+      geometry: { type: 'LineString', coordinates: [[79.1617, 12.9762], [79.161, 12.971]] },
+      etaMinutes: 5,
+    })
+    mockCreateOrder.mockResolvedValue({ id: 'order-1' })
+    const user = userEvent.setup()
+    renderPage()
+    await fillThroughToReview(user)
+
+    await user.click(screen.getByRole('button', { name: 'Post this request' }))
+
+    await waitFor(() => expect(mockCreateOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ distance_source: 'routed' })
+    ))
+  })
+
+  it('persists distance_source: "unresolved" when no route could be computed at all', async () => {
+    mockComputeWalkingRoute.mockResolvedValue(null)
+    mockCreateOrder.mockResolvedValue({ id: 'order-1' })
+    const user = userEvent.setup()
+    renderPage()
+    await fillThroughToReview(user)
+
+    await user.click(screen.getByRole('button', { name: 'Post this request' }))
+
+    await waitFor(() => expect(mockCreateOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ distance_source: 'unresolved', distance_km: null })
+    ))
   })
 
   it('shows no distance line when the pickup point has no real coordinate yet', async () => {

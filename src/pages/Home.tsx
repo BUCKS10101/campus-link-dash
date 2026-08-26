@@ -8,19 +8,36 @@ import { useAuth } from '@/hooks/useAuth'
 import { useOrders } from '@/hooks/useOrders'
 import { useToast } from '@/hooks/use-toast'
 import { useNavigate, Link } from 'react-router-dom'
-import { formatOrderItems, formatDeliveryLocation } from '@/lib/orderContent'
+import { formatOrderItems, formatDeliveryLocation, formatOrderDistance } from '@/lib/orderContent'
+import { rankQuickErrands, rankHighReward, rankFeatured, hasUsableDistance } from '@/lib/ranking'
 import { Rule, Text } from '@/components/primitives'
 import { getErrorMessage } from '@/lib/utils'
 import type { OrderWithProfiles } from '@/lib/database-types'
 
-type FilterKey = 'all' | 'nearby' | 'high-tips'
+// "Nearby" is deliberately not a filter name here: nothing in the app
+// knows where the viewing student actually is (profiles.hostel_block is
+// never written anywhere - see PHASE3_3B_NEARBY_DISCOVERY_SPEC.md §2),
+// so "Quick errands" (a short trip, not a claim about proximity to the
+// viewer) is the only honest framing. "High reward" ranks by
+// reward_density, not a raw tip threshold - see ranking.ts.
+type FilterKey = 'all' | 'quick-errands' | 'high-reward'
 
-const toPostingRow = (order: OrderWithProfiles) => ({
+// How many of the top of each ranked list get a reason chip - a small,
+// fixed number so the label reads as "genuinely near the top of this
+// list" rather than being attached to nearly everything on the board.
+const REASON_CHIP_COUNT = 3
+
+// OrderCard's caption slot is a single line ({order.distance} · posted
+// {order.timeAgo}) - a reason, when one is justified by real ranking
+// data, is appended into that same existing "distance" string rather
+// than adding a new slot to the shared card component, so Home's IA
+// change stays contained to this page.
+const toPostingRow = (order: OrderWithProfiles, reason: string | null) => ({
   id: order.id,
   restaurant: { name: order.restaurant_name },
   items: formatOrderItems(order.items),
   tip: order.tip_amount,
-  distance: order.distance_km != null ? `${order.distance_km.toFixed(1)} km` : 'distance unknown',
+  distance: [formatOrderDistance(order) ?? 'distance unknown', reason].filter(Boolean).join(' · '),
   location: formatDeliveryLocation(order.delivery_location),
   timeAgo: new Date(order.created_at).toLocaleString('en-US', {
     hour: 'numeric',
@@ -70,49 +87,76 @@ const Home = () => {
   // and filter row disappear along with it.
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
 
+  // Ranking (3B) is entirely client-side over this one already-fetched
+  // feed - filter chips no longer trigger a re-fetch or a separate query
+  // (the old nearby/highTips server-side filters are gone), so switching
+  // chips is instant and adds zero network requests. See
+  // PHASE3_3B_NEARBY_DISCOVERY_SPEC.md §9-§10.
   useEffect(() => {
     if (!user) return
 
-    fetchOrders({
-      nearby: activeFilter === 'nearby',
-      highTips: activeFilter === 'high-tips',
-      viewerId: user.user.id,
-    })
+    fetchOrders({ viewerId: user.user.id })
 
     const unsubscribe = subscribeToOrders(() => {
-      fetchOrders({
-        nearby: activeFilter === 'nearby',
-        highTips: activeFilter === 'high-tips',
-        viewerId: user.user.id,
-      })
+      fetchOrders({ viewerId: user.user.id })
     })
 
     return unsubscribe
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, activeFilter])
+  }, [user])
 
   useEffect(() => {
     if (!loading && !hasLoadedOnce) setHasLoadedOnce(true)
   }, [loading, hasLoadedOnce])
 
-  const filters: { key: FilterKey; label: string; count: number }[] = [
-    { key: 'all', label: 'All', count: orders.length },
-    { key: 'nearby', label: 'Nearby', count: orders.filter(o => o.distance_km != null && o.distance_km < 1).length },
-    { key: 'high-tips', label: 'High tip', count: orders.filter(o => o.tip_amount >= 40).length },
-  ]
-
   // The dominant opportunity up top is the best real deal on the board
-  // right now, not an arbitrary first row - highest tip, ties broken by
-  // most recent (orders already arrive sorted created_at desc).
-  const featuredOrder = useMemo(() => {
-    if (orders.length === 0) return null
-    return [...orders].sort((a, b) => b.tip_amount - a.tip_amount)[0]
-  }, [orders])
+  // right now: highest reward_density where any order has a usable
+  // distance, otherwise highest tip (rankFeatured handles both) - never
+  // a separate rule from what "High reward" itself ranks by.
+  const featuredOrder = useMemo(() => rankFeatured(orders), [orders])
 
   const restOrders = useMemo(
     () => orders.filter((o) => o.id !== featuredOrder?.id),
     [orders, featuredOrder],
   )
+
+  // Ranked over the full board, not restOrders - switching to Quick
+  // errands/High reward should show the complete, honestly-ranked list
+  // (including whatever's also featured above in the All view), not
+  // silently drop whichever order happens to be featured right now.
+  const quickErrandOrders = useMemo(() => rankQuickErrands(orders), [orders])
+  const highRewardOrders = useMemo(() => rankHighReward(orders), [orders])
+
+  const filters: { key: FilterKey; label: string; count: number }[] = [
+    { key: 'all', label: 'All', count: orders.length },
+    { key: 'quick-errands', label: 'Quick errands', count: quickErrandOrders.length },
+    { key: 'high-reward', label: 'High reward', count: highRewardOrders.length },
+  ]
+
+  // Small, explainable reason chips - never an opaque score, and never
+  // attached to more than the top handful of each ranked list. A reward
+  // reason only ever attaches to an order that actually has a computed
+  // reward_density (never to an unresolved order ranked by raw tip alone
+  // in the same list) - see ranking.ts's rankHighReward.
+  const quickErrandReasonIds = useMemo(
+    () => new Set(quickErrandOrders.slice(0, REASON_CHIP_COUNT).map((o) => o.id)),
+    [quickErrandOrders],
+  )
+  const highRewardReasonIds = useMemo(
+    () => new Set(highRewardOrders.filter(hasUsableDistance).slice(0, REASON_CHIP_COUNT).map((o) => o.id)),
+    [highRewardOrders],
+  )
+  const reasonFor = (orderId: string): string | null => {
+    if (quickErrandReasonIds.has(orderId)) return 'Quick errand nearby'
+    if (highRewardReasonIds.has(orderId)) return 'Good reward for the distance'
+    return null
+  }
+
+  const visibleOrders = useMemo(() => {
+    if (activeFilter === 'quick-errands') return quickErrandOrders
+    if (activeFilter === 'high-reward') return highRewardOrders
+    return restOrders
+  }, [activeFilter, restOrders, quickErrandOrders, highRewardOrders])
 
   const totalTip = useMemo(() => orders.reduce((sum, o) => sum + o.tip_amount, 0), [orders])
 
@@ -220,13 +264,13 @@ const Home = () => {
           </div>
         )}
 
-        {!error && featuredOrder && (
+        {!error && featuredOrder && activeFilter === 'all' && (
           <div className="border-b border-border pb-8 pt-6">
             <Text variant="label" tone="faint" as="div" className="pb-3">
               Best on the board
             </Text>
             <OrderCard
-              order={toPostingRow(featuredOrder)}
+              order={toPostingRow(featuredOrder, reasonFor(featuredOrder.id))}
               onAccept={handleAcceptOrder}
               accepting={acceptingId === featuredOrder.id}
               featured
@@ -234,12 +278,14 @@ const Home = () => {
           </div>
         )}
 
-        {!error && restOrders.length > 0 && (
+        {!error && visibleOrders.length > 0 && (
           <div>
             <Text variant="label" tone="faint" as="div" className="pb-1 pt-8">
-              More on the board
+              {activeFilter === 'quick-errands' && 'Quick errands'}
+              {activeFilter === 'high-reward' && 'High reward'}
+              {activeFilter === 'all' && 'More on the board'}
             </Text>
-            {restOrders.map((order, i) => (
+            {visibleOrders.map((order, i) => (
               <React.Fragment key={order.id}>
                 <Rule />
                 <div
@@ -247,7 +293,7 @@ const Home = () => {
                   style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
                 >
                   <OrderCard
-                    order={toPostingRow(order)}
+                    order={toPostingRow(order, reasonFor(order.id))}
                     onAccept={handleAcceptOrder}
                     accepting={acceptingId === order.id}
                   />
@@ -257,7 +303,11 @@ const Home = () => {
           </div>
         )}
 
-        {!error && featuredOrder && restOrders.length === 0 && (
+        {/* Never a decorative empty section - each filter gets its own
+            honest explanation for why nothing is showing, since "nothing
+            matches this filter" and "the whole board is empty" are
+            different facts. */}
+        {!error && visibleOrders.length === 0 && activeFilter === 'all' && featuredOrder && (
           <div className="flex flex-col items-start gap-3 py-10">
             <Text variant="bodySm" tone="faint">That's everything on the board right now.</Text>
             <Link
@@ -266,6 +316,20 @@ const Home = () => {
             >
               Post your own request
             </Link>
+          </div>
+        )}
+
+        {!error && orders.length > 0 && visibleOrders.length === 0 && activeFilter === 'quick-errands' && (
+          <div className="py-10">
+            <Text variant="bodySm" tone="faint">
+              Nothing on the board right now has a real distance to judge — check back soon, or try All.
+            </Text>
+          </div>
+        )}
+
+        {!error && orders.length > 0 && visibleOrders.length === 0 && activeFilter === 'high-reward' && (
+          <div className="py-10">
+            <Text variant="bodySm" tone="faint">Nothing left to rank — try All.</Text>
           </div>
         )}
       </div>

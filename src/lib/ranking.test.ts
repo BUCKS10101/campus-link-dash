@@ -1,0 +1,156 @@
+import { describe, it, expect } from 'vitest'
+import {
+  getTrustTier,
+  hasUsableDistance,
+  rewardDensity,
+  rankQuickErrands,
+  rankHighReward,
+  rankFeatured,
+  MIN_DISTANCE_KM,
+  type RankableOrder,
+} from './ranking'
+
+const order = (overrides: Partial<RankableOrder> & { id: string }): RankableOrder => ({
+  tip_amount: 30,
+  distance_km: 1,
+  distance_source: 'routed',
+  created_at: '2026-08-26T12:00:00Z',
+  ...overrides,
+})
+
+describe('getTrustTier', () => {
+  it('is routed only when distance_source is routed AND a distance exists', () => {
+    expect(getTrustTier(order({ id: '1', distance_source: 'routed', distance_km: 0.5 }))).toBe('routed')
+  })
+
+  it('is fallback when distance_source is fallback and a distance exists', () => {
+    expect(getTrustTier(order({ id: '1', distance_source: 'fallback', distance_km: 0.5 }))).toBe('fallback')
+  })
+
+  it('is unresolved when distance_source is null (legacy order)', () => {
+    expect(getTrustTier(order({ id: '1', distance_source: null, distance_km: null }))).toBe('unresolved')
+  })
+
+  it('is unresolved when distance_km is null even if distance_source claims routed', () => {
+    // Shouldn't happen from real data, but the function must not trust a
+    // tier label with no number behind it.
+    expect(getTrustTier(order({ id: '1', distance_source: 'routed', distance_km: null }))).toBe('unresolved')
+  })
+
+  it('is unresolved for the explicit "unresolved" distance_source', () => {
+    expect(getTrustTier(order({ id: '1', distance_source: 'unresolved', distance_km: null }))).toBe('unresolved')
+  })
+})
+
+describe('hasUsableDistance', () => {
+  it('is true for routed and fallback, false for unresolved', () => {
+    expect(hasUsableDistance(order({ id: '1', distance_source: 'routed', distance_km: 1 }))).toBe(true)
+    expect(hasUsableDistance(order({ id: '1', distance_source: 'fallback', distance_km: 1 }))).toBe(true)
+    expect(hasUsableDistance(order({ id: '1', distance_source: null, distance_km: null }))).toBe(false)
+  })
+})
+
+describe('rewardDensity', () => {
+  it('divides tip by distance for a usable-distance order', () => {
+    expect(rewardDensity(order({ id: '1', tip_amount: 40, distance_km: 2 }))).toBe(20)
+  })
+
+  it('is null for an unresolved order - never fabricates a ratio', () => {
+    expect(rewardDensity(order({ id: '1', distance_source: null, distance_km: null }))).toBeNull()
+  })
+
+  it('floors the denominator at MIN_DISTANCE_KM for a very short/near-zero trip', () => {
+    const veryClose = order({ id: '1', tip_amount: 30, distance_km: 0.001 })
+    expect(rewardDensity(veryClose)).toBe(30 / MIN_DISTANCE_KM)
+    // Confirms the floor actually caps it - without it this would be 30000.
+    expect(rewardDensity(veryClose)).toBeLessThan(1000)
+  })
+
+  it('is unaffected by the floor once distance exceeds it', () => {
+    expect(rewardDensity(order({ id: '1', tip_amount: 30, distance_km: 1 }))).toBe(30)
+  })
+})
+
+describe('rankQuickErrands', () => {
+  it('sorts usable-distance orders by distance ascending', () => {
+    const far = order({ id: 'far', distance_km: 2 })
+    const near = order({ id: 'near', distance_km: 0.3 })
+    const mid = order({ id: 'mid', distance_km: 1 })
+    expect(rankQuickErrands([far, near, mid]).map((o) => o.id)).toEqual(['near', 'mid', 'far'])
+  })
+
+  it('never includes unresolved orders', () => {
+    const routed = order({ id: 'routed', distance_km: 1 })
+    const legacy = order({ id: 'legacy', distance_source: null, distance_km: null })
+    const result = rankQuickErrands([routed, legacy])
+    expect(result.map((o) => o.id)).toEqual(['routed'])
+  })
+
+  it('includes both routed and fallback orders, ranked purely by distance', () => {
+    const routedFar = order({ id: 'routed-far', distance_source: 'routed', distance_km: 1.5 })
+    const fallbackNear = order({ id: 'fallback-near', distance_source: 'fallback', distance_km: 0.4 })
+    expect(rankQuickErrands([routedFar, fallbackNear]).map((o) => o.id)).toEqual(['fallback-near', 'routed-far'])
+  })
+
+  it('breaks a distance tie by most recent first', () => {
+    const older = order({ id: 'older', distance_km: 1, created_at: '2026-08-26T10:00:00Z' })
+    const newer = order({ id: 'newer', distance_km: 1, created_at: '2026-08-26T11:00:00Z' })
+    expect(rankQuickErrands([older, newer]).map((o) => o.id)).toEqual(['newer', 'older'])
+  })
+
+  it('returns an empty list when nothing on the board has a usable distance', () => {
+    const legacy1 = order({ id: 'a', distance_source: null, distance_km: null })
+    const legacy2 = order({ id: 'b', distance_source: 'unresolved', distance_km: null })
+    expect(rankQuickErrands([legacy1, legacy2])).toEqual([])
+  })
+})
+
+describe('rankHighReward', () => {
+  it('ranks usable-distance orders by reward_density, not raw tip', () => {
+    // Higher tip but much farther - lower density, should rank second.
+    const bigTipFar = order({ id: 'big-tip-far', tip_amount: 100, distance_km: 5 }) // density 20
+    const smallTipNear = order({ id: 'small-tip-near', tip_amount: 30, distance_km: 0.5 }) // density 60
+    expect(rankHighReward([bigTipFar, smallTipNear]).map((o) => o.id)).toEqual(['small-tip-near', 'big-tip-far'])
+  })
+
+  it('places unresolved orders after every usable-distance order, ranked by tip alone', () => {
+    const routed = order({ id: 'routed', tip_amount: 10, distance_km: 5 }) // density 2 - very low
+    const legacyHighTip = order({ id: 'legacy-high-tip', distance_source: null, distance_km: null, tip_amount: 90 })
+    const legacyLowTip = order({ id: 'legacy-low-tip', distance_source: null, distance_km: null, tip_amount: 20 })
+    const result = rankHighReward([legacyLowTip, routed, legacyHighTip])
+    // routed (has real density) must lead even though its tip is tiny -
+    // tiers are never blended - then unresolved ordered by tip within
+    // their own group.
+    expect(result.map((o) => o.id)).toEqual(['routed', 'legacy-high-tip', 'legacy-low-tip'])
+  })
+
+  it('breaks a density tie by most recent first', () => {
+    const older = order({ id: 'older', tip_amount: 30, distance_km: 1, created_at: '2026-08-26T10:00:00Z' })
+    const newer = order({ id: 'newer', tip_amount: 30, distance_km: 1, created_at: '2026-08-26T11:00:00Z' })
+    expect(rankHighReward([older, newer]).map((o) => o.id)).toEqual(['newer', 'older'])
+  })
+
+  it('breaks an unresolved tip tie by most recent first', () => {
+    const older = order({ id: 'older', distance_source: null, distance_km: null, tip_amount: 30, created_at: '2026-08-26T10:00:00Z' })
+    const newer = order({ id: 'newer', distance_source: null, distance_km: null, tip_amount: 30, created_at: '2026-08-26T11:00:00Z' })
+    expect(rankHighReward([older, newer]).map((o) => o.id)).toEqual(['newer', 'older'])
+  })
+})
+
+describe('rankFeatured', () => {
+  it('picks the best reward_density order when any exists', () => {
+    const routed = order({ id: 'routed', tip_amount: 30, distance_km: 0.5 }) // density 60
+    const legacyHighTip = order({ id: 'legacy', distance_source: null, distance_km: null, tip_amount: 200 })
+    expect(rankFeatured([legacyHighTip, routed])?.id).toBe('routed')
+  })
+
+  it('falls back to highest tip when nothing on the board has a usable distance', () => {
+    const legacyLow = order({ id: 'low', distance_source: null, distance_km: null, tip_amount: 20 })
+    const legacyHigh = order({ id: 'high', distance_source: null, distance_km: null, tip_amount: 50 })
+    expect(rankFeatured([legacyLow, legacyHigh])?.id).toBe('high')
+  })
+
+  it('is null for an empty board', () => {
+    expect(rankFeatured([])).toBeNull()
+  })
+})

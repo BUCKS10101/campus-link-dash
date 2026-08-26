@@ -54,6 +54,9 @@ export const PostOrderSchema = z.object({
   custom_delivery_lat: z.number().min(-90).max(90).nullable(),
   custom_delivery_lng: z.number().min(-180).max(180).nullable(),
   custom_delivery_note: z.string().trim().max(300, 'Note must be under 300 characters').nullable(),
+  // See PHASE3_3B_NEARBY_DISCOVERY_SPEC.md §5 - set alongside distance_km,
+  // never guessed after the fact.
+  distance_source: z.enum(['routed', 'fallback', 'unresolved']).nullable(),
   status: z.literal('pending'),
 })
 export type PostOrderInput = z.infer<typeof PostOrderSchema>

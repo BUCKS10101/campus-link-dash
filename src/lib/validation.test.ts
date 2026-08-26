@@ -73,6 +73,7 @@ describe('PostOrderSchema', () => {
     custom_delivery_lat: null,
     custom_delivery_lng: null,
     custom_delivery_note: null,
+    distance_source: 'routed' as const,
     status: 'pending' as const,
   }
 
@@ -86,7 +87,19 @@ describe('PostOrderSchema', () => {
       distance_km: null,
       pickup_point_id: null,
       delivery_point_id: null,
+      distance_source: null,
     }).success).toBe(true)
+  })
+
+  it('accepts every distance_source value, including null for legacy/unresolved orders', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, distance_source: 'routed' }).success).toBe(true)
+    expect(PostOrderSchema.safeParse({ ...valid, distance_source: 'fallback' }).success).toBe(true)
+    expect(PostOrderSchema.safeParse({ ...valid, distance_source: 'unresolved' }).success).toBe(true)
+    expect(PostOrderSchema.safeParse({ ...valid, distance_source: null }).success).toBe(true)
+  })
+
+  it('rejects an invalid distance_source value', () => {
+    expect(PostOrderSchema.safeParse({ ...valid, distance_source: 'guessed' }).success).toBe(false)
   })
 
   it('rejects a non-uuid delivery_point_id', () => {

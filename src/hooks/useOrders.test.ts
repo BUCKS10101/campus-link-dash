@@ -31,6 +31,7 @@ describe('fetchOrders column safety', () => {
     expect(selectArg).toMatch(/requester_id/)
     expect(selectArg).toMatch(/deliverer_id/)
     expect(selectArg).toMatch(/distance_km/)
+    expect(selectArg).toMatch(/distance_source/)
     expect(selectArg).toMatch(/orders_requester_id_fkey/)
     expect(selectArg).not.toMatch(/\botp\b/)
     expect(selectArg).not.toMatch(/customer_id/)
@@ -75,6 +76,7 @@ describe('createOrder', () => {
         tip_amount: 30,
         delivery_location: { type: 'campus', label: 'TT Block' },
         distance_km: 1.2,
+        distance_source: 'routed',
         pickup_point_id: null,
         delivery_point_id: null,
         custom_delivery_lat: null,
@@ -117,6 +119,7 @@ describe('createOrder', () => {
           tip_amount: 30,
           delivery_location: { type: 'campus', label: 'TT Block' },
           distance_km: 1.2,
+          distance_source: 'routed',
           status: 'pending',
         })
       })

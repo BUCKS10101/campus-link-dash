@@ -244,6 +244,14 @@ const PostRequest = () => {
       const deliveryLocation: DeliveryLocation = { type: 'campus', label: locationLabel }
       if (!deliveryLocation.label) throw new Error('Please select a delivery location')
 
+      // Set once, here, alongside distance_km itself - compute_walking_route()'s
+      // routed-vs-fallback distinction (geometry: null or not) only exists in
+      // resolvedRoute's transient state; it can't be reliably reconstructed
+      // later (graph connectivity can change), so it's captured now or not
+      // at all. See PHASE3_3B_NEARBY_DISCOVERY_SPEC.md §5.
+      const distanceSource: 'routed' | 'fallback' | 'unresolved' =
+        resolvedRoute == null ? 'unresolved' : resolvedRoute.geometry ? 'routed' : 'fallback'
+
       await createOrder({
         requester_id: user.user.id,
         deliverer_id: null,
@@ -252,6 +260,7 @@ const PostRequest = () => {
         tip_amount: formData.tip[0],
         delivery_location: deliveryLocation,
         distance_km: resolvedDistance,
+        distance_source: distanceSource,
         pickup_point_id: pickupPoint?.id ?? null,
         delivery_point_id: deliveryPoint?.id ?? null,
         custom_delivery_lat: hasCustomPin ? formData.customLat : null,

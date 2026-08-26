@@ -47,6 +47,15 @@ export interface Order {
   custom_delivery_lat: number | null
   custom_delivery_lng: number | null
   custom_delivery_note: string | null
+  /**
+   * Whether distance_km is a real routed distance, a straight-line
+   * fallback, or was never resolved - set once at creation time
+   * alongside distance_km itself, since the routed/fallback distinction
+   * (compute_walking_route()'s geometry: null-ness) isn't reconstructible
+   * later. null for every legacy (pre-3B) order - never guessed/
+   * backfilled. See PHASE3_3B_NEARBY_DISCOVERY_SPEC.md §5.
+   */
+  distance_source: 'routed' | 'fallback' | 'unresolved' | null
   created_at: string
   /**
    * Real column, but never selectable directly (column-level SELECT is
