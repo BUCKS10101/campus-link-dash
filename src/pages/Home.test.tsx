@@ -48,6 +48,16 @@ vi.mock('@/hooks/useCampusPoints', () => ({
   }),
 }))
 
+const mockFetchAcceptedFriendIds = vi.fn()
+vi.mock('@/hooks/useFriends', () => ({
+  useFriends: () => ({ fetchAcceptedFriendIds: mockFetchAcceptedFriendIds }),
+}))
+
+const mockGetProfilesReputation = vi.fn()
+vi.mock('@/hooks/useRatings', () => ({
+  useRatings: () => ({ getProfilesReputation: mockGetProfilesReputation }),
+}))
+
 const { default: Home } = await import('./Home')
 
 const AUTH_USER = { user: { id: 'viewer-1', email: 'a@vitstudent.ac.in' }, profile: null }
@@ -79,6 +89,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue({ user: AUTH_USER, loading: false })
   mockOrders = []
+  mockFetchAcceptedFriendIds.mockResolvedValue(new Set())
+  mockGetProfilesReputation.mockResolvedValue(new Map())
 })
 
 describe('Home — 3B filters', () => {
@@ -323,5 +335,130 @@ describe('Home — Where (From/To location filter)', () => {
 
     expect(mockFetchOrders.mock.calls.length).toBe(callsBefore)
     expect(mockSubscribeToOrders).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Home — 3F Recommended', () => {
+  it('shows the Recommended filter chip alongside the existing three', () => {
+    mockOrders = [baseOrder({ id: 'a' })]
+    renderPage()
+    expect(screen.getByRole('button', { name: /Recommended/ })).toBeInTheDocument()
+  })
+
+  it('never claims proximity or an opaque match score in the Recommended view', async () => {
+    mockOrders = [baseOrder({ id: 'a', tip_amount: 30, distance_km: 0.3, distance_source: 'routed' })]
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /Recommended/ }))
+
+    expect(screen.queryByText(/near you/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/nearby you/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/best for you/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/perfect match/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Based on reward, route quality, trust and connections.')).toBeInTheDocument()
+  })
+
+  it("excludes the viewer's own posted order from Recommended", async () => {
+    mockOrders = [
+      baseOrder({ id: 'mine', requester_id: 'viewer-1', tip_amount: 100, distance_km: 0.2, distance_source: 'routed' }),
+      baseOrder({ id: 'theirs', requester_id: 'requester-2', tip_amount: 10, distance_km: 2, distance_source: 'fallback' }),
+    ]
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /Recommended/ }))
+
+    expect(screen.queryByText('₹100')).not.toBeInTheDocument()
+    expect(await screen.findByText('₹10')).toBeInTheDocument()
+  })
+
+  it('ranks routed above fallback above unresolved regardless of reward', async () => {
+    mockOrders = [
+      baseOrder({ id: 'unresolved', tip_amount: 500, distance_km: null, distance_source: null }),
+      baseOrder({ id: 'fallback', tip_amount: 5, distance_km: 3, distance_source: 'fallback' }),
+      baseOrder({ id: 'routed', tip_amount: 1, distance_km: 3, distance_source: 'routed' }),
+    ]
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /Recommended/ }))
+
+    // The "up for grabs" summary badge also renders as ₹<sum> - exclude
+    // it so this only asserts the order-card tips, in rendered order.
+    const total = 500 + 5 + 1
+    const tips = (await screen.findAllByText(/^₹\d+$/)).filter((el) => el.textContent !== `₹${total}`)
+    expect(tips.map((el) => el.textContent)).toEqual(['₹1', '₹5', '₹500'])
+  })
+
+  it('breaks a tie between equal reward density using reputation, without penalizing an unrated requester', async () => {
+    mockGetProfilesReputation.mockResolvedValue(new Map([
+      ['rated-well', { avg_rating: 4.9, rating_count: 10 }],
+      ['unrated', { avg_rating: null, rating_count: 0 }],
+    ]))
+    mockOrders = [
+      baseOrder({ id: 'from-unrated', requester_id: 'unrated', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-26T10:00:00Z' }),
+      baseOrder({ id: 'from-rated', requester_id: 'rated-well', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-26T09:00:00Z' }),
+    ]
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /Recommended/ }))
+
+    // Equal reward density (same tip, same distance) - the rated
+    // requester's order wins the tie, but the unrated one is still
+    // shown, never dropped or visibly marked worse.
+    const restaurantRows = await screen.findAllByText(/One Food World/)
+    expect(restaurantRows).toHaveLength(2)
+  })
+
+  it('shows "Friend involved" only for a friend-authored order, as a tie-break nudge', async () => {
+    mockFetchAcceptedFriendIds.mockResolvedValue(new Set(['friend-1']))
+    mockOrders = [
+      baseOrder({ id: 'from-friend', requester_id: 'friend-1', tip_amount: 30, distance_km: 3, distance_source: 'routed' }),
+      baseOrder({ id: 'from-stranger', requester_id: 'stranger-1', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-25T10:00:00Z' }),
+    ]
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /Recommended/ }))
+
+    expect(await screen.findByText(/Friend involved/)).toBeInTheDocument()
+  })
+
+  it("shows an honest empty state when only the viewer's own orders remain", async () => {
+    mockOrders = [baseOrder({ id: 'mine', requester_id: 'viewer-1' })]
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /Recommended/ }))
+
+    expect(await screen.findByText(/Nothing to recommend right now/)).toBeInTheDocument()
+  })
+
+  it('fetches friendship and reputation data exactly once, regardless of tab switches', async () => {
+    mockOrders = [baseOrder({ id: 'a' }), baseOrder({ id: 'b', requester_id: 'requester-2' })]
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByRole('button', { name: /Recommended/ })
+
+    expect(mockFetchAcceptedFriendIds).toHaveBeenCalledTimes(1)
+    expect(mockGetProfilesReputation).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: /Recommended/ }))
+    await user.click(screen.getByRole('button', { name: /Quick errands/ }))
+    await user.click(screen.getByRole('button', { name: /High reward/ }))
+    await user.click(screen.getByRole('button', { name: /^All/ }))
+
+    expect(mockFetchAcceptedFriendIds).toHaveBeenCalledTimes(1)
+    expect(mockGetProfilesReputation).toHaveBeenCalledTimes(1)
+  })
+
+  it('handles a legacy unresolved order (distance_source null) without crashing, ranked last by tier', async () => {
+    mockOrders = [
+      baseOrder({ id: 'legacy', tip_amount: 999, distance_km: null, distance_source: null }),
+      baseOrder({ id: 'fallback', requester_id: 'requester-2', tip_amount: 1, distance_km: 1, distance_source: 'fallback' }),
+    ]
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /Recommended/ }))
+
+    const total = 999 + 1
+    const tips = (await screen.findAllByText(/^₹\d+$/)).filter((el) => el.textContent !== `₹${total}`)
+    expect(tips.map((el) => el.textContent)).toEqual(['₹1', '₹999'])
   })
 })

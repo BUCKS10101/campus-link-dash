@@ -6,15 +6,27 @@ import {
   rankQuickErrands,
   rankHighReward,
   rankFeatured,
+  rankRecommended,
   MIN_DISTANCE_KM,
   filterByLocation,
   matchesLocationFilter,
   isLocationFilterActive,
   type RankableOrder,
+  type RecommendableOrder,
+  type ReputationSummary,
   type LocationFilterableOrder,
 } from './ranking'
 
 const order = (overrides: Partial<RankableOrder> & { id: string }): RankableOrder => ({
+  tip_amount: 30,
+  distance_km: 1,
+  distance_source: 'routed',
+  created_at: '2026-08-26T12:00:00Z',
+  ...overrides,
+})
+
+const recommendableOrder = (overrides: Partial<RecommendableOrder> & { id: string }): RecommendableOrder => ({
+  requester_id: 'requester-1',
   tip_amount: 30,
   distance_km: 1,
   distance_source: 'routed',
@@ -225,5 +237,143 @@ describe('filterByLocation', () => {
     expect(filterByLocation(board, { pickupPointId: BALAJI, deliveryPointId: null }).some((o) => o.id === 'legacy')).toBe(false)
     expect(filterByLocation(board, { pickupPointId: null, deliveryPointId: TT }).some((o) => o.id === 'legacy')).toBe(false)
     expect(filterByLocation(board, { pickupPointId: BALAJI, deliveryPointId: TT }).some((o) => o.id === 'legacy')).toBe(false)
+  })
+})
+
+describe('rankRecommended', () => {
+  const VIEWER = 'viewer-1'
+  const noFriends = new Set<string>()
+  const noReputation = new Map<string, ReputationSummary>()
+
+  it('is deterministic - the same input always produces the same output', () => {
+    const orders = [
+      recommendableOrder({ id: 'a', requester_id: 'r1', tip_amount: 30, distance_km: 2, distance_source: 'routed' }),
+      recommendableOrder({ id: 'b', requester_id: 'r2', tip_amount: 10, distance_km: 1, distance_source: 'fallback' }),
+      recommendableOrder({ id: 'c', requester_id: 'r3', tip_amount: 500, distance_km: null, distance_source: null }),
+    ]
+    const first = rankRecommended(orders, VIEWER, noFriends, noReputation).map((o) => o.id)
+    const second = rankRecommended(orders, VIEWER, noFriends, noReputation).map((o) => o.id)
+    expect(first).toEqual(second)
+  })
+
+  it('excludes the viewer\'s own posted orders, even when they would otherwise rank first', () => {
+    const orders = [
+      recommendableOrder({ id: 'mine', requester_id: VIEWER, tip_amount: 1000, distance_km: 0.1, distance_source: 'routed' }),
+      recommendableOrder({ id: 'theirs', requester_id: 'someone-else', tip_amount: 1, distance_km: 5, distance_source: 'fallback' }),
+    ]
+    const result = rankRecommended(orders, VIEWER, noFriends, noReputation)
+    expect(result.map((o) => o.id)).toEqual(['theirs'])
+  })
+
+  it('routed outranks fallback regardless of reward', () => {
+    const orders = [
+      recommendableOrder({ id: 'fallback-high-reward', requester_id: 'r1', tip_amount: 1000, distance_km: 1, distance_source: 'fallback' }),
+      recommendableOrder({ id: 'routed-low-reward', requester_id: 'r2', tip_amount: 1, distance_km: 1, distance_source: 'routed' }),
+    ]
+    const result = rankRecommended(orders, VIEWER, noFriends, noReputation)
+    expect(result.map((o) => o.id)).toEqual(['routed-low-reward', 'fallback-high-reward'])
+  })
+
+  it('fallback outranks unresolved regardless of reward', () => {
+    const orders = [
+      recommendableOrder({ id: 'unresolved-high-reward', requester_id: 'r1', tip_amount: 1000, distance_km: null, distance_source: null }),
+      recommendableOrder({ id: 'fallback-low-reward', requester_id: 'r2', tip_amount: 1, distance_km: 1, distance_source: 'fallback' }),
+    ]
+    const result = rankRecommended(orders, VIEWER, noFriends, noReputation)
+    expect(result.map((o) => o.id)).toEqual(['fallback-low-reward', 'unresolved-high-reward'])
+  })
+
+  it('within the same tier, orders by reward density (routed/fallback) or raw tip (unresolved)', () => {
+    const routed = [
+      recommendableOrder({ id: 'low-density', requester_id: 'r1', tip_amount: 10, distance_km: 10, distance_source: 'routed' }),
+      recommendableOrder({ id: 'high-density', requester_id: 'r2', tip_amount: 100, distance_km: 1, distance_source: 'routed' }),
+    ]
+    expect(rankRecommended(routed, VIEWER, noFriends, noReputation).map((o) => o.id)).toEqual(['high-density', 'low-density'])
+
+    const unresolved = [
+      recommendableOrder({ id: 'low-tip', requester_id: 'r1', tip_amount: 5, distance_km: null, distance_source: null }),
+      recommendableOrder({ id: 'high-tip', requester_id: 'r2', tip_amount: 50, distance_km: null, distance_source: null }),
+    ]
+    expect(rankRecommended(unresolved, VIEWER, noFriends, noReputation).map((o) => o.id)).toEqual(['high-tip', 'low-tip'])
+  })
+
+  it('reputation only breaks a tie between orders already equal on tier + reward density (both sides rated)', () => {
+    const orders = [
+      recommendableOrder({ id: 'from-lower-rated', requester_id: 'lower-rated', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-26T09:00:00Z' }),
+      recommendableOrder({ id: 'from-higher-rated', requester_id: 'higher-rated', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-26T08:00:00Z' }),
+    ]
+    const reputation = new Map<string, ReputationSummary>([
+      ['higher-rated', { avg_rating: 4.9, rating_count: 10 }],
+      ['lower-rated', { avg_rating: 3.5, rating_count: 5 }],
+    ])
+    const result = rankRecommended(orders, VIEWER, noFriends, reputation)
+    // Higher-rated wins the tie despite being the older/less-recent post -
+    // proves reputation actually decides when both sides have real ratings.
+    expect(result.map((o) => o.id)).toEqual(['from-higher-rated', 'from-lower-rated'])
+  })
+
+  it('never lets a real rated requester\'s order outrank a genuinely better-value order from an unrated requester', () => {
+    const orders = [
+      recommendableOrder({ id: 'better-value-unrated', requester_id: 'unrated', tip_amount: 100, distance_km: 1, distance_source: 'routed' }),
+      recommendableOrder({ id: 'worse-value-rated', requester_id: 'rated', tip_amount: 10, distance_km: 10, distance_source: 'routed' }),
+    ]
+    const reputation = new Map<string, ReputationSummary>([
+      ['rated', { avg_rating: 5, rating_count: 20 }],
+      ['unrated', { avg_rating: null, rating_count: 0 }],
+    ])
+    const result = rankRecommended(orders, VIEWER, noFriends, reputation)
+    expect(result.map((o) => o.id)).toEqual(['better-value-unrated', 'worse-value-rated'])
+  })
+
+  it('two orders differing only in one side being unrated stay tied at the reputation level and fall through', () => {
+    const orders = [
+      recommendableOrder({ id: 'newer-unrated', requester_id: 'unrated', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-26T10:00:00Z' }),
+      recommendableOrder({ id: 'older-unrated-too', requester_id: 'also-unrated', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-26T09:00:00Z' }),
+    ]
+    const reputation = new Map<string, ReputationSummary>([
+      ['unrated', { avg_rating: null, rating_count: 0 }],
+      ['also-unrated', { avg_rating: null, rating_count: 0 }],
+    ])
+    // Reputation yields no difference for either side (both unrated) -
+    // falls through to recency: the newer one wins.
+    const result = rankRecommended(orders, VIEWER, noFriends, reputation)
+    expect(result.map((o) => o.id)).toEqual(['newer-unrated', 'older-unrated-too'])
+  })
+
+  it('friendship only breaks a tie between orders already equal through reputation, never overriding reward', () => {
+    const orders = [
+      recommendableOrder({ id: 'from-friend', requester_id: 'friend-1', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-25T10:00:00Z' }),
+      recommendableOrder({ id: 'from-stranger', requester_id: 'stranger-1', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-26T10:00:00Z' }),
+    ]
+    const friends = new Set(['friend-1'])
+    const result = rankRecommended(orders, VIEWER, friends, noReputation)
+    expect(result.map((o) => o.id)).toEqual(['from-friend', 'from-stranger'])
+  })
+
+  it('friendship never overrides a meaningfully better reward density', () => {
+    const orders = [
+      recommendableOrder({ id: 'friend-low-value', requester_id: 'friend-1', tip_amount: 5, distance_km: 10, distance_source: 'routed' }),
+      recommendableOrder({ id: 'stranger-high-value', requester_id: 'stranger-1', tip_amount: 100, distance_km: 1, distance_source: 'routed' }),
+    ]
+    const friends = new Set(['friend-1'])
+    const result = rankRecommended(orders, VIEWER, friends, noReputation)
+    expect(result.map((o) => o.id)).toEqual(['stranger-high-value', 'friend-low-value'])
+  })
+
+  it('recency breaks a final tie when tier, reward, reputation, and friendship are all equal', () => {
+    const orders = [
+      recommendableOrder({ id: 'older', requester_id: 'r1', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-25T10:00:00Z' }),
+      recommendableOrder({ id: 'newer', requester_id: 'r2', tip_amount: 30, distance_km: 3, distance_source: 'routed', created_at: '2026-08-26T10:00:00Z' }),
+    ]
+    const result = rankRecommended(orders, VIEWER, noFriends, noReputation)
+    expect(result.map((o) => o.id)).toEqual(['newer', 'older'])
+  })
+
+  it('handles a legacy unresolved order (distance_source null, distance_km null) without crashing', () => {
+    const orders = [
+      recommendableOrder({ id: 'legacy', requester_id: 'r1', tip_amount: 999, distance_km: null, distance_source: null }),
+    ]
+    expect(() => rankRecommended(orders, VIEWER, noFriends, noReputation)).not.toThrow()
+    expect(rankRecommended(orders, VIEWER, noFriends, noReputation).map((o) => o.id)).toEqual(['legacy'])
   })
 })

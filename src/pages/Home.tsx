@@ -7,10 +7,15 @@ import { AlertCircle } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/hooks/useAuth'
 import { useOrders } from '@/hooks/useOrders'
+import { useRatings } from '@/hooks/useRatings'
+import { useFriends } from '@/hooks/useFriends'
 import { useToast } from '@/hooks/use-toast'
 import { useNavigate, Link } from 'react-router-dom'
 import { formatOrderItems, formatDeliveryLocation, formatOrderDistance } from '@/lib/orderContent'
-import { rankQuickErrands, rankHighReward, rankFeatured, hasUsableDistance, filterByLocation, isLocationFilterActive, type LocationFilter } from '@/lib/ranking'
+import {
+  rankQuickErrands, rankHighReward, rankFeatured, rankRecommended, hasUsableDistance,
+  filterByLocation, isLocationFilterActive, type LocationFilter, type ReputationSummary,
+} from '@/lib/ranking'
 import { useCampusPoints } from '@/hooks/useCampusPoints'
 import { WhereFilter } from '@/components/home/WhereFilter'
 import { Rule, Text } from '@/components/primitives'
@@ -25,7 +30,13 @@ const NO_LOCATION_FILTER: LocationFilter = { pickupPointId: null, deliveryPointI
 // so "Quick errands" (a short trip, not a claim about proximity to the
 // viewer) is the only honest framing. "High reward" ranks by
 // reward_density, not a raw tip threshold - see ranking.ts.
-type FilterKey = 'all' | 'quick-errands' | 'high-reward'
+//
+// "Recommended" (Phase 3F) is the same honesty rule extended: it never
+// claims proximity to the viewer either - it's a deterministic re-sort
+// of the same real signals (trust tier, reward density, reputation,
+// friendship), never a proximity or "for you" location claim. See
+// PHASE3_3F_SMART_MATCHING_SPEC.md.
+type FilterKey = 'all' | 'recommended' | 'quick-errands' | 'high-reward'
 
 // How many of the top of each ranked list get a reason chip - a small,
 // fixed number so the label reads as "genuinely near the top of this
@@ -85,6 +96,8 @@ const Home = () => {
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
   const { orders, loading, error, fetchOrders, acceptOrder, subscribeToOrders } = useOrders()
+  const { fetchAcceptedFriendIds } = useFriends()
+  const { getProfilesReputation } = useRatings()
   // Campus points for the Where search fields only - one small reference
   // fetch on mount (already used elsewhere, e.g. PostRequest), never
   // re-fetched on a filter change, and never touches MapLibre.
@@ -96,6 +109,30 @@ const Home = () => {
   // refetches too (same `loading` flag) but should never make the header
   // and filter row disappear along with it.
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+
+  // Phase 3F "Recommended" signals - one friendship query and one
+  // batched reputation call, total, regardless of board size. Keyed off
+  // `orders` (not locationFilteredOrders/activeFilter), so switching the
+  // Where filter or a ranking tab never triggers a new network request -
+  // see PHASE3_3F_SMART_MATCHING_SPEC.md §12/§13.
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set())
+  const [reputationByRequesterId, setReputationByRequesterId] = useState<Map<string, ReputationSummary>>(new Map())
+
+  useEffect(() => {
+    if (!user) return
+    fetchAcceptedFriendIds(user.user.id).then(setFriendIds)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+
+  useEffect(() => {
+    const requesterIds = orders.map((o) => o.requester_id)
+    if (requesterIds.length === 0) {
+      setReputationByRequesterId(new Map())
+      return
+    }
+    getProfilesReputation(requesterIds).then(setReputationByRequesterId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders])
 
   // Ranking (3B) is entirely client-side over this one already-fetched
   // feed - filter chips no longer trigger a re-fetch or a separate query
@@ -149,10 +186,20 @@ const Home = () => {
   const quickErrandOrders = useMemo(() => rankQuickErrands(locationFilteredOrders), [locationFilteredOrders])
   const highRewardOrders = useMemo(() => rankHighReward(locationFilteredOrders), [locationFilteredOrders])
 
+  // Recommended (3F) - a strict hierarchy (tier -> reward density ->
+  // reputation tie-break -> friendship tie-break -> recency), never a
+  // weighted sum. Excludes the viewer's own posted orders (eligibility,
+  // spec §2) - the only new eligibility rule, scoped to this list only.
+  const recommendedOrders = useMemo(
+    () => (user ? rankRecommended(locationFilteredOrders, user.user.id, friendIds, reputationByRequesterId) : []),
+    [locationFilteredOrders, user, friendIds, reputationByRequesterId],
+  )
+
   const filters: { key: FilterKey; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: locationFilteredOrders.length },
     { key: 'quick-errands', label: 'Quick errands', count: quickErrandOrders.length },
     { key: 'high-reward', label: 'High reward', count: highRewardOrders.length },
+    { key: 'recommended', label: 'Recommended', count: recommendedOrders.length },
   ]
 
   const pointLabelById = useMemo(() => new Map(campusPoints.map((p) => [p.id, p.label])), [campusPoints])
@@ -183,11 +230,42 @@ const Home = () => {
     return null
   }
 
+  // "Strong reward" - the unresolved-tier counterpart to "Good reward
+  // for the distance": a high raw tip where there's no distance to
+  // divide by, mirrored from rankHighReward's own without-distance
+  // bucket rather than an invented threshold.
+  const strongRewardReasonIds = useMemo(
+    () => new Set(highRewardOrders.filter((o) => !hasUsableDistance(o)).slice(0, REASON_CHIP_COUNT).map((o) => o.id)),
+    [highRewardOrders],
+  )
+  // Friend involved only ever decorates the top of Recommended's own
+  // ordering (never every friend-authored order on the board) - same
+  // "top handful, not everything" discipline as every other chip here.
+  const recommendedFriendReasonIds = useMemo(
+    () => new Set(
+      recommendedOrders.slice(0, REASON_CHIP_COUNT).filter((o) => friendIds.has(o.requester_id)).map((o) => o.id),
+    ),
+    [recommendedOrders, friendIds],
+  )
+  // Priority order matches spec §9: a personal connection is the most
+  // salient true story, then reward, then pure distance. Reuses the
+  // already-computed global sets above rather than a second ranking -
+  // one of Recommended's own top 3 simply gets no chip if none apply,
+  // same as reasonFor() already allows.
+  const reasonForRecommended = (orderId: string): string | null => {
+    if (recommendedFriendReasonIds.has(orderId)) return 'Friend involved'
+    if (highRewardReasonIds.has(orderId)) return 'Good reward for the distance'
+    if (strongRewardReasonIds.has(orderId)) return 'Strong reward'
+    if (quickErrandReasonIds.has(orderId)) return 'Short run'
+    return null
+  }
+
   const visibleOrders = useMemo(() => {
     if (activeFilter === 'quick-errands') return quickErrandOrders
     if (activeFilter === 'high-reward') return highRewardOrders
+    if (activeFilter === 'recommended') return recommendedOrders
     return restOrders
-  }, [activeFilter, restOrders, quickErrandOrders, highRewardOrders])
+  }, [activeFilter, restOrders, quickErrandOrders, highRewardOrders, recommendedOrders])
 
   // Reflects the currently-effective (location-filtered) view, not the
   // raw board - showing "14 students need a hand" while a Where filter
@@ -324,11 +402,18 @@ const Home = () => {
           </div>
         )}
 
+        {!error && activeFilter === 'recommended' && (
+          <Text variant="caption" tone="faint" as="p" className="pb-2 pt-6">
+            Based on reward, route quality, trust and connections.
+          </Text>
+        )}
+
         {!error && visibleOrders.length > 0 && (
           <div>
-            <Text variant="label" tone="faint" as="div" className="pb-1 pt-8">
+            <Text variant="label" tone="faint" as="div" className={cn('pb-1', activeFilter === 'recommended' ? 'pt-2' : 'pt-8')}>
               {activeFilter === 'quick-errands' && 'Quick errands'}
               {activeFilter === 'high-reward' && 'High reward'}
+              {activeFilter === 'recommended' && 'Recommended'}
               {activeFilter === 'all' && 'More on the board'}
             </Text>
             {visibleOrders.map((order, i) => (
@@ -339,7 +424,7 @@ const Home = () => {
                   style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
                 >
                   <OrderCard
-                    order={toPostingRow(order, reasonFor(order.id))}
+                    order={toPostingRow(order, activeFilter === 'recommended' ? reasonForRecommended(order.id) : reasonFor(order.id))}
                     onAccept={handleAcceptOrder}
                     accepting={acceptingId === order.id}
                   />
@@ -389,6 +474,15 @@ const Home = () => {
         {!error && locationFilteredOrders.length > 0 && visibleOrders.length === 0 && activeFilter === 'high-reward' && (
           <div className="py-10">
             <Text variant="bodySm" tone="faint">Nothing left to rank — try All.</Text>
+          </div>
+        )}
+
+        {/* Only reachable when every remaining order is the viewer's own
+            post (rankRecommended's one eligibility rule) - everything
+            else the hierarchy touches always resolves to a real order. */}
+        {!error && locationFilteredOrders.length > 0 && visibleOrders.length === 0 && activeFilter === 'recommended' && (
+          <div className="py-10">
+            <Text variant="bodySm" tone="faint">Nothing to recommend right now — everything left on the board is yours. Try All.</Text>
           </div>
         )}
       </div>

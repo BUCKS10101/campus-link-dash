@@ -118,6 +118,103 @@ export const rankFeatured = <T extends RankableOrder>(orders: readonly T[]): T |
   rankHighReward(orders)[0] ?? null
 
 /**
+ * Phase 3F — "Recommended for you". A strict lexicographic hierarchy,
+ * never a weighted sum: each level below only ever breaks a tie left by
+ * the level above it. See PHASE3_3F_SMART_MATCHING_SPEC.md §4.
+ *
+ * Reuses getTrustTier/hasUsableDistance/rewardDensity verbatim - there
+ * is exactly one definition of tier/reward in this app, and this
+ * function does not duplicate or reinterpret it.
+ */
+export interface RecommendableOrder extends RankableOrder {
+  requester_id: string
+}
+
+/** Aggregate reputation shape from get_profile(s)_reputation - see useRatings.ts. */
+export interface ReputationSummary {
+  avg_rating: number | null
+  rating_count: number
+}
+
+const TIER_RANK: Record<TrustTier, number> = { routed: 0, fallback: 1, unresolved: 2 }
+
+const compareTier = (a: RankableOrder, b: RankableOrder): number =>
+  TIER_RANK[getTrustTier(a)] - TIER_RANK[getTrustTier(b)]
+
+/**
+ * Only ever called once both orders are already known to share a tier
+ * (compareTier returned 0) - so hasUsableDistance(a) === hasUsableDistance(b)
+ * here, and the same two-shape treatment rankHighReward already uses
+ * (reward_density for a usable distance, raw tip otherwise) applies.
+ */
+const compareRewardWithinTier = (a: RankableOrder, b: RankableOrder): number => {
+  if (hasUsableDistance(a)) {
+    return (rewardDensity(b) as number) - (rewardDensity(a) as number)
+  }
+  return b.tip_amount - a.tip_amount
+}
+
+/**
+ * Reputation only ever decides between two orders already tied through
+ * tier + reward - never a filter, never applied when either requester
+ * has zero ratings (an unrated user is neither boosted nor penalized;
+ * this level simply yields no difference and falls through). See spec §6.
+ */
+const compareReputation = (
+  a: RecommendableOrder,
+  b: RecommendableOrder,
+  reputationByRequesterId: ReadonlyMap<string, ReputationSummary>,
+): number => {
+  const ra = reputationByRequesterId.get(a.requester_id)
+  const rb = reputationByRequesterId.get(b.requester_id)
+  if (!ra || !rb || ra.rating_count === 0 || rb.rating_count === 0) return 0
+  return (rb.avg_rating ?? 0) - (ra.avg_rating ?? 0)
+}
+
+/**
+ * Friendship only ever decides between two orders already tied through
+ * tier + reward + reputation - a same-tier, same-reward, same-trust nudge,
+ * never a boost large enough to move an order past a meaningfully
+ * better one. See spec §7. deliverer_id is always null on the public
+ * pending board, so only requester_id is ever meaningful here.
+ */
+const compareFriendship = (
+  a: RecommendableOrder,
+  b: RecommendableOrder,
+  friendIds: ReadonlySet<string>,
+): number => {
+  const aFriend = friendIds.has(a.requester_id) ? 1 : 0
+  const bFriend = friendIds.has(b.requester_id) ? 1 : 0
+  return bFriend - aFriend
+}
+
+/**
+ * Eligibility (Recommended-view only, spec §2): the viewer's own posted
+ * orders are excluded here, not from the underlying board query -
+ * All/Quick errands/High reward are untouched and still show them.
+ */
+export const rankRecommended = <T extends RecommendableOrder>(
+  orders: readonly T[],
+  viewerId: string,
+  friendIds: ReadonlySet<string>,
+  reputationByRequesterId: ReadonlyMap<string, ReputationSummary>,
+): T[] =>
+  orders
+    .filter((o) => o.requester_id !== viewerId)
+    .slice()
+    .sort((a, b) => {
+      const tierDiff = compareTier(a, b)
+      if (tierDiff !== 0) return tierDiff
+      const rewardDiff = compareRewardWithinTier(a, b)
+      if (rewardDiff !== 0) return rewardDiff
+      const reputationDiff = compareReputation(a, b, reputationByRequesterId)
+      if (reputationDiff !== 0) return reputationDiff
+      const friendshipDiff = compareFriendship(a, b, friendIds)
+      if (friendshipDiff !== 0) return friendshipDiff
+      return byRecencyDesc(a, b)
+    })
+
+/**
  * Where (3B follow-up) — filter by pickup/delivery campus_points.id,
  * using data every order already carries (pickup_point_id/
  * delivery_point_id) - no schema change, no per-order lookup.

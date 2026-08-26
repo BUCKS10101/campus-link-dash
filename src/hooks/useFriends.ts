@@ -40,6 +40,28 @@ export const useFriends = () => {
     }
   }
 
+  /**
+   * Phase 3F - a lean id-only query for Home's "Recommended" ranking
+   * (see PHASE3_3F_SMART_MATCHING_SPEC.md §11/§12), deliberately not
+   * fetchMyFriendships: that one joins full profile rows for the
+   * Friends page and would over-fetch for a ranking signal that only
+   * ever needs "which ids are my accepted friends." One query, no
+   * profile embed, only accepted relationships (a pending request isn't
+   * a friend yet for this purpose).
+   */
+  const fetchAcceptedFriendIds = async (userId: string): Promise<Set<string>> => {
+    const { data, error } = await supabase
+      .from('friendships')
+      .select('requester_id, addressee_id')
+      .eq('status', 'accepted')
+      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
+
+    if (error) return new Set()
+
+    const rows = (data ?? []) as { requester_id: string; addressee_id: string }[]
+    return new Set(rows.map((r) => (r.requester_id === userId ? r.addressee_id : r.requester_id)))
+  }
+
   // Stable across renders (empty deps: closes only over the module-level
   // supabase client, never component state) - FindStudents' debounce
   // effect in Friends.tsx depends on this directly, and an unstable
@@ -91,6 +113,7 @@ export const useFriends = () => {
   return {
     loading,
     fetchMyFriendships,
+    fetchAcceptedFriendIds,
     searchProfiles,
     sendFriendRequest,
     acceptFriendRequest,
