@@ -118,6 +118,38 @@ export interface Friendship {
   created_at: string
 }
 
+/**
+ * Phase 3D - see PHASE3_3D_RATINGS_TRUST_SPEC.md. Never written directly
+ * by the client - the only write path is submit_rating(), a SECURITY
+ * DEFINER RPC (supabase/migrations/20260827300000_ratings.sql) that
+ * derives reviewee_id/validates delivered-state server-side. RLS scopes
+ * SELECT to the reviewer or reviewee only - no public review feed.
+ */
+export interface Rating {
+  id: string
+  order_id: string
+  reviewer_id: string
+  reviewee_id: string
+  score: number
+  comment: string | null
+  created_at: string
+}
+
+/**
+ * The shape get_profile_reputation() returns - a single blended average
+ * across both rating directions (requester-rated and deliverer-rated
+ * are not split in v1), computed live, never cached. avg_rating/
+ * rating_count are null/0 for a profile nobody has rated yet - never a
+ * fabricated default. completed_deliveries is independent of ratings
+ * entirely (a real count of delivered orders where this profile was the
+ * deliverer).
+ */
+export interface ProfileReputation {
+  avg_rating: number | null
+  rating_count: number
+  completed_deliveries: number
+}
+
 export interface OrderWithProfiles extends Order {
   requester_profile: Profile
   deliverer_profile: Profile | null

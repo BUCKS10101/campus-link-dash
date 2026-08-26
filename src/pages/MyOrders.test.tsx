@@ -27,6 +27,17 @@ vi.mock('@/hooks/useChat', () => ({
   useChat: () => ({ messages: [], loading: false, error: null, sendMessage: mockSendMessage }),
 }))
 
+const mockFetchMyRatedOrderIds = vi.fn()
+const mockSubmitRating = vi.fn()
+vi.mock('@/hooks/useRatings', () => ({
+  useRatings: () => ({
+    submitting: false,
+    submitRating: mockSubmitRating,
+    fetchMyRatedOrderIds: mockFetchMyRatedOrderIds,
+    getProfileReputation: vi.fn(),
+  }),
+}))
+
 vi.mock('@/hooks/useNotifications', () => ({
   useNotifications: () => ({
     notifications: [],
@@ -91,6 +102,7 @@ const otpSlipText = () => screen.getByRole('status').textContent?.trim()
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue({ user: AUTH_USER, loading: false, signOut: vi.fn() })
+  mockFetchMyRatedOrderIds.mockResolvedValue(new Set())
 })
 
 describe('MyOrders / Activity', () => {
@@ -225,6 +237,69 @@ describe('MyOrders / Activity', () => {
 
     expect(screen.getByText(/^Asked ·/)).toBeInTheDocument()
     expect(screen.getByText(/^Carried ·/)).toBeInTheDocument()
+  })
+})
+
+describe('MyOrders / Activity - rating prompt (Phase 3D)', () => {
+  it('shows "Rate this delivery" for a delivered order the viewer has not yet rated', async () => {
+    const delivered = { ...REQUESTED_ORDER, id: 'order-3', status: 'delivered' }
+    mockFetchMyRatedOrderIds.mockResolvedValue(new Set())
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [delivered] }))
+    renderMyOrders()
+
+    expect(await screen.findByRole('button', { name: /rate this delivery/i })).toBeInTheDocument()
+  })
+
+  it('does not show the prompt for an order already rated by this viewer', async () => {
+    const delivered = { ...REQUESTED_ORDER, id: 'order-3', status: 'delivered' }
+    mockFetchMyRatedOrderIds.mockResolvedValue(new Set(['order-3']))
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [delivered] }))
+    renderMyOrders()
+
+    await waitFor(() => expect(mockFetchMyRatedOrderIds).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /rate this delivery/i })).not.toBeInTheDocument()
+  })
+
+  it('does not show the prompt for a cancelled (non-delivered) past order', async () => {
+    const cancelled = { ...REQUESTED_ORDER, id: 'order-3', status: 'cancelled' }
+    mockFetchMyRatedOrderIds.mockResolvedValue(new Set())
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [cancelled] }))
+    renderMyOrders()
+
+    await waitFor(() => expect(mockFetchMyRatedOrderIds).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /rate this delivery/i })).not.toBeInTheDocument()
+  })
+
+  it('submits a rating, shows a confirmation toast, and removes the prompt without a refetch', async () => {
+    const delivered = { ...REQUESTED_ORDER, id: 'order-3', status: 'delivered' }
+    mockFetchMyRatedOrderIds.mockResolvedValue(new Set())
+    mockSubmitRating.mockResolvedValue(undefined)
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [delivered] }))
+    renderMyOrders()
+
+    const trigger = await screen.findByRole('button', { name: /rate this delivery/i })
+    await userEvent.click(trigger)
+
+    await userEvent.click(screen.getByRole('radio', { name: '5 stars' }))
+    await userEvent.click(screen.getByRole('button', { name: /^submit$/i }))
+
+    await waitFor(() => expect(mockSubmitRating).toHaveBeenCalledWith('order-3', 5, ''))
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringMatching(/recorded/i) })
+    ))
+    await waitFor(() => expect(screen.queryByRole('button', { name: /rate this delivery/i })).not.toBeInTheDocument())
+  })
+
+  it('disables Submit until a star is picked', async () => {
+    const delivered = { ...REQUESTED_ORDER, id: 'order-3', status: 'delivered' }
+    mockFetchMyRatedOrderIds.mockResolvedValue(new Set())
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [delivered] }))
+    renderMyOrders()
+
+    const trigger = await screen.findByRole('button', { name: /rate this delivery/i })
+    await userEvent.click(trigger)
+
+    expect(screen.getByRole('button', { name: /^submit$/i })).toBeDisabled()
   })
 })
 

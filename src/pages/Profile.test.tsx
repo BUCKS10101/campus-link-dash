@@ -20,6 +20,11 @@ vi.mock('next-themes', () => ({
   useTheme: () => mockUseTheme(),
 }))
 
+const mockGetProfileReputation = vi.fn()
+vi.mock('@/hooks/useRatings', () => ({
+  useRatings: () => ({ getProfileReputation: mockGetProfileReputation }),
+}))
+
 const { default: Profile } = await import('./Profile')
 
 const PROFILE = {
@@ -43,6 +48,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue({ user: AUTH_USER, loading: false, updateProfile: mockUpdateProfile })
   mockUseTheme.mockReturnValue({ theme: 'light', setTheme: mockSetTheme })
+  mockGetProfileReputation.mockResolvedValue({ avg_rating: null, rating_count: 0, completed_deliveries: 0 })
 })
 
 describe('Profile', () => {
@@ -59,11 +65,44 @@ describe('Profile', () => {
     expect(screen.getByText(/9876543210/)).toBeInTheDocument()
   })
 
-  it('shows no fake or unpopulated stats - deliveries, rating, and balance are all dead data with no real writer anywhere', () => {
+  it('never shows balance - payments are deferred, no wallet exists', () => {
     renderProfile()
-    expect(screen.queryByText(/deliveries/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/rating/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/balance/i)).not.toBeInTheDocument()
+  })
+
+  describe('reputation (Phase 3D)', () => {
+    it('shows real average rating and count once loaded, not a fabricated default', async () => {
+      mockGetProfileReputation.mockResolvedValue({ avg_rating: 4.8, rating_count: 17, completed_deliveries: 23 })
+      renderProfile()
+
+      expect(await screen.findByText('4.8 · based on 17 ratings')).toBeInTheDocument()
+      expect(screen.getByText('23')).toBeInTheDocument()
+      expect(mockGetProfileReputation).toHaveBeenCalledWith('user-1')
+    })
+
+    it('shows "No ratings yet" instead of a fake 0.0 when the profile has never been rated', async () => {
+      mockGetProfileReputation.mockResolvedValue({ avg_rating: null, rating_count: 0, completed_deliveries: 0 })
+      renderProfile()
+
+      expect(await screen.findByText('No ratings yet')).toBeInTheDocument()
+      expect(screen.queryByText(/0\.0/)).not.toBeInTheDocument()
+    })
+
+    it('still shows a real (zero) completed-deliveries count for a new account', async () => {
+      mockGetProfileReputation.mockResolvedValue({ avg_rating: null, rating_count: 0, completed_deliveries: 0 })
+      renderProfile()
+
+      await screen.findByText('No ratings yet')
+      expect(screen.getByText('Completed deliveries')).toBeInTheDocument()
+      expect(screen.getByText('0')).toBeInTheDocument()
+    })
+
+    it('uses singular "rating" for exactly one rating', async () => {
+      mockGetProfileReputation.mockResolvedValue({ avg_rating: 5, rating_count: 1, completed_deliveries: 2 })
+      renderProfile()
+
+      expect(await screen.findByText('5.0 · based on 1 rating')).toBeInTheDocument()
+    })
   })
 
   it('shows no fake settings - only the real, wired dark mode toggle', () => {
