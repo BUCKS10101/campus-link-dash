@@ -377,3 +377,63 @@ Confirmed live on Home:
 
 Cleaned up: both disposable test orders deleted from staging after
 verification. No production access at any point.
+
+## 16. Follow-up: Where (From/To location filter)
+
+Adds a fourth, compact control to the filter row - **Where** - alongside
+All/Quick errands/High reward, letting the student filter opportunities
+by pickup and/or delivery campus location. Composes with the existing
+ranking filters rather than replacing them (see examples below); does
+not touch the schema (`pickup_point_id`/`delivery_point_id` already
+exist) and adds no new network requests beyond the one-time
+`useCampusPoints()` fetch Home didn't previously need (already used
+elsewhere in the app, e.g. PostRequest - not a new query pattern).
+
+**Filtering order**: `filterByLocation()` (in `ranking.ts`) runs first,
+before `rankFeatured`/`rankQuickErrands`/`rankHighReward` - all three
+ranking filters and the featured slot operate on the already
+location-narrowed list, so e.g. "Quick errands + From: Balaji Store"
+shows only Balaji-Store-origin orders with a usable distance, sorted by
+distance - never a contradictory combination.
+
+**Legacy/unresolved orders**: an order with `pickup_point_id` or
+`delivery_point_id` both null can never match a *specific* From/To
+selection (null !== a real id) - this falls out of the equality check
+in `matchesLocationFilter()` automatically, not a special case. They
+remain fully visible under All and under an unset Where filter.
+
+**UI**: `src/components/home/WhereFilter.tsx`. Desktop renders a Popover;
+mobile (`useIsMobile()`, an existing hook, already used by Sidebar) gets
+a bottom Sheet, confirmed to sit above the fixed mobile nav bar
+(Sheet is `z-50`, nav is `z-40`). Both share the same From/To fields -
+each a searchable combobox (Popover + Command, both already-existing
+shadcn primitives - no new dependency) rather than a native `<select>`
+someone has to scroll through. Selecting is a local draft; nothing is
+applied to Home's actual filter (or shown in the applied summary) until
+Apply; Clear resets and applies immediately.
+
+Applied state is shown two ways: the trigger button's own label changes
+from "Where" to the literal requested format ("From: Balaji Store · To:
+TT"), and a dedicated empty-state message
+("Nothing matches From: Balaji Store right now.") replaces the generic
+per-ranking-filter empty states whenever the location filter itself is
+what produced zero results - with its own "Clear location filter" button.
+
+**Verified live on staging** (not a full disposable-order QA pass this
+time - existing board data was sufficient): opening Where, searching
+("Balaji" → filters to "Balaji Store" in the list), selecting, Apply,
+the applied-summary label, the honest empty state, Clear (both the
+panel's own Clear and the empty-state's "Clear location filter")
+restoring the full board, and the mobile Sheet variant sitting above the
+bottom nav - all confirmed via screenshots against the real app.
+
+**Testing**: `ranking.test.ts` covers `filterByLocation`/
+`matchesLocationFilter`/`isLocationFilterActive` in isolation (From
+only, To only, both, clearing, legacy exclusion). `Home.test.tsx` adds
+end-to-end coverage for the same cases through the real UI (search →
+select → Apply), composition with Quick errands and High reward, and a
+dedicated zero-additional-network-requests assertion across the whole
+open → search → select → Apply → Clear cycle. jsdom needed two more
+polyfills in `src/test/setup.ts` (`matchMedia`, `Element.scrollIntoView`)
+for `useIsMobile()`/cmdk to mount at all in tests - same pattern already
+used there for `ResizeObserver`.

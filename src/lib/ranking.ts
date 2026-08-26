@@ -116,3 +116,45 @@ export const rankHighReward = <T extends RankableOrder>(orders: readonly T[]): T
  */
 export const rankFeatured = <T extends RankableOrder>(orders: readonly T[]): T | null =>
   rankHighReward(orders)[0] ?? null
+
+/**
+ * Where (3B follow-up) — filter by pickup/delivery campus_points.id,
+ * using data every order already carries (pickup_point_id/
+ * delivery_point_id) - no schema change, no per-order lookup.
+ *
+ * A null side of the filter means "don't constrain that side" - not
+ * "match orders with no point set". An order whose own
+ * pickup_point_id/delivery_point_id is null (legacy/custom-pin/
+ * unresolved) can never match a *specific* location filter, since null
+ * !== a real id - it only ever appears when neither side is constrained.
+ * This is automatic from the equality check below, not a special case.
+ */
+export interface LocationFilterableOrder {
+  id: string
+  pickup_point_id: string | null
+  delivery_point_id: string | null
+}
+
+export interface LocationFilter {
+  pickupPointId: string | null
+  deliveryPointId: string | null
+}
+
+export const isLocationFilterActive = (filter: LocationFilter): boolean =>
+  filter.pickupPointId != null || filter.deliveryPointId != null
+
+export const matchesLocationFilter = (order: LocationFilterableOrder, filter: LocationFilter): boolean => {
+  if (filter.pickupPointId != null && order.pickup_point_id !== filter.pickupPointId) return false
+  if (filter.deliveryPointId != null && order.delivery_point_id !== filter.deliveryPointId) return false
+  return true
+}
+
+/**
+ * Applied before any ranking/grouping (see Home.tsx) - Quick errands/High
+ * reward/Best-on-the-board all operate on the already-location-filtered
+ * list, so the two kinds of filter always compose rather than fight.
+ */
+export const filterByLocation = <T extends LocationFilterableOrder>(
+  orders: readonly T[],
+  filter: LocationFilter,
+): T[] => (isLocationFilterActive(filter) ? orders.filter((o) => matchesLocationFilter(o, filter)) : orders.slice())
