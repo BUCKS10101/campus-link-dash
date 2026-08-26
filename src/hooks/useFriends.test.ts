@@ -65,6 +65,51 @@ describe('useFriends - fetchMyFriendships', () => {
   })
 })
 
+describe('useFriends - fetchAcceptedFriendIds (Phase 3F)', () => {
+  it('returns the other participant id for each accepted friendship, in either direction', async () => {
+    supabaseMock.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      or: vi.fn().mockResolvedValue({
+        data: [
+          { requester_id: 'me', addressee_id: 'friend-1' },
+          { requester_id: 'friend-2', addressee_id: 'me' },
+        ],
+        error: null,
+      }),
+    })
+    const { result } = renderHook(() => useFriends())
+
+    const ids = await result.current.fetchAcceptedFriendIds('me')
+    expect(ids).toEqual(new Set(['friend-1', 'friend-2']))
+  })
+
+  it('scopes the query to accepted relationships only', async () => {
+    const eqMock = vi.fn().mockReturnThis()
+    supabaseMock.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: eqMock,
+      or: vi.fn().mockResolvedValue({ data: [], error: null }),
+    })
+    const { result } = renderHook(() => useFriends())
+
+    await result.current.fetchAcceptedFriendIds('me')
+    expect(eqMock).toHaveBeenCalledWith('status', 'accepted')
+  })
+
+  it('returns an empty set on a query error instead of throwing', async () => {
+    supabaseMock.from.mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      or: vi.fn().mockResolvedValue({ data: null, error: { message: 'network error' } }),
+    })
+    const { result } = renderHook(() => useFriends())
+
+    const ids = await result.current.fetchAcceptedFriendIds('me')
+    expect(ids).toEqual(new Set())
+  })
+})
+
 describe('useFriends - searchProfiles', () => {
   it('calls search_profiles with the trimmed query', async () => {
     supabaseMock.rpc.mockResolvedValue({ data: [{ id: 'x', name: 'Alice', avg_rating: null, rating_count: 0, relationship: 'none' }], error: null })

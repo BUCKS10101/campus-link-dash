@@ -1,0 +1,52 @@
+%% CampusLink — Phase 3F: Smart Matching
+%% One valid Mermaid diagram, in subgraphs (a raw .mmd file can only hold
+%% one diagram definition - same convention as PHASE3_3D/3E's flow files):
+%%   1) "Matching Flow"     - User -> signals -> deterministic ranking -> Home
+%%   2) "Fallback Behavior" - routed/fallback/unresolved + unrated/new-user handling
+%%   3) "Privacy Boundary"  - what ranking may read vs what it may never expose
+%%   4) "Future Enhancement" - live location, explicitly deferred
+%% See PHASE3_3F_SMART_MATCHING_SPEC.md for the full architecture this diagrams.
+
+flowchart TD
+
+  subgraph FLOW["Matching Flow"]
+    direction TD
+    A["User opens Home"] --> B["Discovery context\none board query (existing, unchanged)\n+ one friendships query\n+ one batched reputation RPC"]
+    B --> C{"Eligibility\n(Recommended view only)"}
+    C -->|"viewer's own posted order"| C1["Excluded from Recommended\n(still visible in All/Quick errands/High reward)"]
+    C -->|"eligible"| D["Distance / routing signal\ngetTrustTier(): routed > fallback > unresolved\n(reused verbatim from 3B)"]
+    D --> E["Reward signal\nrewardDensity() within same tier,\nraw tip_amount for unresolved tier\n(reused verbatim from 3B)"]
+    E --> F["Trust signal\nreputation tie-break -\nONLY when both sides rated"]
+    F --> G["Friendship signal\ntie-break only - requester is\nan accepted friend of the viewer"]
+    G --> H["Recency tie-break\nnewest created_at first"]
+    H --> I["Deterministic ranking\nstrict hierarchy, never a weighted sum"]
+    I --> J["Explainable recommendation\none reason chip, top 3 only:\nFriend involved / Strong reward /\nGood reward for the distance / Short run"]
+    J --> K["Home\nnew 'Recommended' filter chip,\nalongside All / Quick errands / High reward"]
+  end
+
+  subgraph FALLBACK["Fallback and New-User Behavior"]
+    direction LR
+    R1["routed"] --> R2["fallback"] --> R3["unresolved"]
+    R3 -.->|"never hidden, never boosted above a real tier -\nranked last by tier, by raw tip within it"| R3OUT["still shown, honestly labeled"]
+    U1["Requester has 0 ratings"] -->|"reputation comparison SKIPPED,\nnot scored as worst"| U2["Neutral - falls through to\nfriendship/recency, never penalized"]
+  end
+
+  subgraph SEC["Privacy Boundary"]
+    direction LR
+    READ["Ranking MAY read:\ndistance_km/distance_source (own order)\ntip_amount\naggregate avg_rating/rating_count (3D, already public)\nviewer's OWN accepted friend ids (3E, participant-only)"] --> RANK["Deterministic ranking\n(client-side, pure function)"]
+    RANK -->|"never reads or exposes"| DENY["private phone/chat\nlive delivery location\nindividual rating comments\nanyone else's friend graph\norder permissions (accept still\ngoes through the same server checks)"]
+  end
+
+  subgraph FUTURE["Future Enhancement - Deferred"]
+    direction LR
+    LOC["Viewer's real physical location"] -.->|"does not exist today -\nno GPS collected, hostel_block is not\ntreated as live position"| DEFER["Deferred: a dedicated, consented,\npurpose-built live-location milestone -\nnot inferred, not faked, not built here"]
+  end
+
+  style C1 fill:#eee,stroke:#999
+  style I fill:#d4edda,stroke:#2a7
+  style K fill:#d1ecf1,stroke:#17a
+  style R3OUT fill:#eee,stroke:#999
+  style U2 fill:#eee,stroke:#999
+  style DENY fill:#f8d7da,stroke:#c00
+  style DEFER fill:#eee,stroke:#999,stroke-dasharray: 4 3
+  style LOC fill:#eee,stroke:#999,stroke-dasharray: 4 3

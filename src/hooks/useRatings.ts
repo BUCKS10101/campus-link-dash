@@ -48,5 +48,25 @@ export const useRatings = () => {
     return row ?? null
   }
 
-  return { submitting, submitRating, fetchMyRatedOrderIds, getProfileReputation }
+  /**
+   * Phase 3F - batched, to avoid the N+1 a per-order get_profile_reputation
+   * call would be against a whole Home feed. See
+   * PHASE3_3F_SMART_MATCHING_SPEC.md §11. Returns a Map keyed by profile
+   * id so callers never need to know which ids happened to have zero
+   * ratings vs which failed to resolve at all.
+   */
+  const getProfilesReputation = async (
+    profileIds: string[],
+  ): Promise<Map<string, { avg_rating: number | null; rating_count: number }>> => {
+    const uniqueIds = Array.from(new Set(profileIds))
+    if (uniqueIds.length === 0) return new Map()
+
+    const { data, error } = await supabase.rpc('get_profiles_reputation', { p_profile_ids: uniqueIds })
+    if (error) return new Map()
+
+    const rows = (data ?? []) as unknown as { id: string; avg_rating: number | null; rating_count: number }[]
+    return new Map(rows.map((r) => [r.id, { avg_rating: r.avg_rating, rating_count: r.rating_count }]))
+  }
+
+  return { submitting, submitRating, fetchMyRatedOrderIds, getProfileReputation, getProfilesReputation }
 }

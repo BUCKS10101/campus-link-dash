@@ -130,3 +130,36 @@ describe('useRatings - getProfileReputation', () => {
     expect(got).toBeNull()
   })
 })
+
+describe('useRatings - getProfilesReputation (Phase 3F, batched)', () => {
+  it('calls the batched RPC once with the deduplicated id list and returns a Map keyed by id', async () => {
+    supabaseMock.rpc.mockResolvedValue({
+      data: [
+        { id: 'user-1', avg_rating: 4.8, rating_count: 17 },
+        { id: 'user-2', avg_rating: null, rating_count: 0 },
+      ],
+      error: null,
+    })
+    const { result } = renderHook(() => useRatings())
+
+    const map = await result.current.getProfilesReputation(['user-1', 'user-2', 'user-1'])
+    expect(supabaseMock.rpc).toHaveBeenCalledTimes(1)
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('get_profiles_reputation', { p_profile_ids: ['user-1', 'user-2'] })
+    expect(map.get('user-1')).toEqual({ avg_rating: 4.8, rating_count: 17 })
+    expect(map.get('user-2')).toEqual({ avg_rating: null, rating_count: 0 })
+  })
+
+  it('returns an empty Map for an empty id list without calling the RPC', async () => {
+    const { result } = renderHook(() => useRatings())
+    const map = await result.current.getProfilesReputation([])
+    expect(map.size).toBe(0)
+    expect(supabaseMock.rpc).not.toHaveBeenCalled()
+  })
+
+  it('returns an empty Map on error instead of throwing', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: null, error: { message: 'network error' } })
+    const { result } = renderHook(() => useRatings())
+    const map = await result.current.getProfilesReputation(['user-1'])
+    expect(map.size).toBe(0)
+  })
+})
