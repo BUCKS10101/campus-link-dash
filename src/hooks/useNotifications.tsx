@@ -4,8 +4,13 @@ import { useAuth } from '@/hooks/useAuth'
 import type { Notification, NotificationWithOrder } from '@/lib/database-types'
 
 const NOTIFICATION_COLUMNS = `
-  id, recipient_id, type, order_id, read_at, created_at,
-  order:orders(restaurant_name)
+  id, recipient_id, type, order_id, friendship_id, read_at, created_at,
+  order:orders(restaurant_name),
+  friendship:friendships(
+    requester_id, addressee_id,
+    requester_profile:profiles!friendships_requester_id_fkey(name),
+    addressee_profile:profiles!friendships_addressee_id_fkey(name)
+  )
 `
 
 // Simple capped list, not true infinite scroll - see

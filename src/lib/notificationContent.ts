@@ -1,13 +1,22 @@
-import type { NotificationType } from './database-types'
+import type { NotificationWithOrder } from './database-types'
+
+const otherParticipantName = (notification: NotificationWithOrder): string => {
+  const f = notification.friendship
+  if (!f) return 'Someone'
+  const otherProfile = f.requester_id === notification.recipient_id ? f.addressee_profile : f.requester_profile
+  return otherProfile?.name ?? 'Someone'
+}
 
 /**
- * One sentence per event type, derived from the order it's about - never
- * stored (see NotificationWithOrder in database-types.ts). Only five
- * types exist (the table's CHECK constraint), so a switch is exhaustive
- * and needs no fallback branch.
+ * One sentence per event type, derived from the order or friendship
+ * it's about - never stored (see NotificationWithOrder in
+ * database-types.ts). The table's CHECK constraint is the exhaustive
+ * list of types; a switch needs no fallback branch.
  */
-export const formatNotificationText = (type: NotificationType, restaurantName: string): string => {
-  switch (type) {
+export const formatNotificationText = (notification: NotificationWithOrder): string => {
+  const restaurantName = notification.order?.restaurant_name ?? 'your order'
+
+  switch (notification.type) {
     case 'order_accepted':
       return `Someone accepted your ${restaurantName} order.`
     case 'order_picked_up':
@@ -18,6 +27,10 @@ export const formatNotificationText = (type: NotificationType, restaurantName: s
       return `Your ${restaurantName} order was delivered.`
     case 'new_chat_message':
       return `New message about your ${restaurantName} order.`
+    case 'friend_request_received':
+      return `${otherParticipantName(notification)} sent you a friend request.`
+    case 'friend_request_accepted':
+      return `${otherParticipantName(notification)} accepted your friend request.`
   }
 }
 

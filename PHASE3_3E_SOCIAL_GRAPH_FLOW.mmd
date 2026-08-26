@@ -1,0 +1,52 @@
+%% CampusLink — Phase 3E: Social Graph / Friends
+%% One valid Mermaid diagram, in two subgraphs (a raw .mmd file can only
+%% hold one diagram definition - see PHASE3_3D_RATINGS_TRUST_FLOW.mmd for
+%% the same convention already established):
+%%   1) "Friend Request Flow"          - the end-to-end product/event flow
+%%   2) "Security / Data Relationship" - User -> Friendship -> Participant -> Notification
+%% See PHASE3_3E_SOCIAL_GRAPH_SPEC.md for the full architecture this diagrams.
+
+flowchart TD
+
+  subgraph FLOW["Friend Request Flow"]
+    direction TD
+    A["User A searches for a student\nsearch_profiles(query) - name only,\nno email/phone/hostel exposed"] --> B["User A sends a friend request\nsend_friend_request(addressee_id)"]
+    B --> C{"Server validation\nSECURITY DEFINER RPC"}
+    C -->|"self-request"| C1["Rejected"]
+    C -->|"duplicate or reverse-duplicate\n(canonical unique index)"| C2["Rejected: relationship already exists"]
+    C -->|"valid"| D["Pending relationship persisted\nstatus = 'pending'\nrequester_id = A, addressee_id = B"]
+    D --> E["Notification: friend_request_received\n(to User B only - trigger on friendships INSERT)"]
+    D --> F{"User B responds"}
+    F -->|"accept_friend_request()"| G["Canonical accepted relationship\nstatus = 'accepted'"]
+    F -->|"decline_friend_request()"| H["Row deleted\nno status ever persisted,\nno notification"]
+    B -.->|"cancel_friend_request()\n(User A withdraws, still pending)"| H
+    G --> I["Notification: friend_request_accepted\n(to User A, the original requester -\nnot User B, who just acted themselves)"]
+    G --> J["Friends list\n(both participants, via\nfriendships_select_participant RLS)"]
+    J -.->|"remove_friend()\n(either participant, only while accepted)"| H
+    J --> K["Future: trust / matching integration\n3F, deferred - documented only"]
+  end
+
+  subgraph SEC["Security and Data Relationship"]
+    direction LR
+    U1["User A (auth.uid())"] -->|"requester_id"| FR["Friendship\nrequester_id, addressee_id\nstatus: pending | accepted\nunique(least(a,b), greatest(a,b))"]
+    U2["User B"] -->|"addressee_id"| FR
+    FR -->|"row visible only to"| PART["Participant\nrequester or addressee\nfriendships_select_participant RLS"]
+    FR -->|"AFTER INSERT trigger\n(SECURITY DEFINER, not client-callable)"| NOTIF1["Notification\ntype = friend_request_received\nfriendship_id set, order_id null"]
+    FR -->|"AFTER UPDATE trigger\npending -> accepted only"| NOTIF2["Notification\ntype = friend_request_accepted\nfriendship_id set, order_id null"]
+    NOTIF1 --> DEDUP["Dedup: partial unique index\n(recipient_id, friendship_id, type)\nwhere friendship_id is not null"]
+    NOTIF2 --> DEDUP
+    WRITE["Client write attempts\n(INSERT/UPDATE/DELETE on friendships)"] -.->|"blocked - no policy grants this,\nonly the 5 RPCs can write"| FR
+  end
+
+  style C1 fill:#f8d7da,stroke:#c00
+  style C2 fill:#f8d7da,stroke:#c00
+  style D fill:#d4edda,stroke:#2a7
+  style G fill:#d4edda,stroke:#2a7
+  style H fill:#eee,stroke:#999
+  style K fill:#eee,stroke:#999,stroke-dasharray: 4 3
+  style FR fill:#d4edda,stroke:#2a7
+  style PART fill:#d1ecf1,stroke:#17a
+  style NOTIF1 fill:#d1ecf1,stroke:#17a
+  style NOTIF2 fill:#d1ecf1,stroke:#17a
+  style DEDUP fill:#d1ecf1,stroke:#17a
+  style WRITE fill:#f8d7da,stroke:#c00,stroke-dasharray: 4 3

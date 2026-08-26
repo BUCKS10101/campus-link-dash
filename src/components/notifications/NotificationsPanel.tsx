@@ -26,7 +26,6 @@ const NotificationRow = ({
   onOpen: (notification: NotificationWithOrder) => void
 }) => {
   const unread = notification.read_at == null
-  const restaurantName = notification.order?.restaurant_name ?? 'your order'
 
   return (
     <button
@@ -44,7 +43,7 @@ const NotificationRow = ({
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <Text variant="bodySm" className={cn(unread && 'font-semibold')}>
-          {formatNotificationText(notification.type, restaurantName)}
+          {formatNotificationText(notification)}
           {unread && <span className="sr-only"> (Unread)</span>}
         </Text>
         <Text variant="caption" tone="faint">
@@ -66,7 +65,7 @@ export function NotificationsList({ onNavigate }: { onNavigate?: () => void }) {
 
   const handleOpen = (notification: NotificationWithOrder) => {
     if (notification.read_at == null) void markRead(notification.id)
-    navigate(`/my-orders?order=${notification.order_id}`)
+    navigate(notification.order_id ? `/my-orders?order=${notification.order_id}` : '/friends')
     onNavigate?.()
   }
 

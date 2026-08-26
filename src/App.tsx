@@ -22,6 +22,7 @@ const Home = lazy(() => import("./pages/Home"));
 const PostRequest = lazy(() => import("./pages/PostRequest"));
 const MyOrders = lazy(() => import("./pages/MyOrders"));
 const Profile = lazy(() => import("./pages/Profile"));
+const Friends = lazy(() => import("./pages/Friends"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -60,6 +61,7 @@ const App = () => (
                     <Route path="/post-request" element={<PostRequest />} />
                     <Route path="/my-orders" element={<MyOrders />} />
                     <Route path="/profile" element={<Profile />} />
+                    <Route path="/friends" element={<Friends />} />
                   </Route>
 
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
