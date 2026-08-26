@@ -14,9 +14,9 @@ export type WalkingRoute = { distanceKm: number; geometry: GeoJSON.LineString | 
 // verify_delivery_otp() (see below) instead.
 const ORDER_COLUMNS = `
   id, requester_id, deliverer_id, restaurant_name, items, tip_amount,
-  delivery_location, distance_km, pickup_point_id, delivery_point_id,
-  custom_delivery_lat, custom_delivery_lng, custom_delivery_note,
-  status, created_at
+  delivery_location, distance_km, distance_source, pickup_point_id,
+  delivery_point_id, custom_delivery_lat, custom_delivery_lng,
+  custom_delivery_note, status, created_at
 `
 
 const ORDER_COLUMNS_WITH_PROFILES = `

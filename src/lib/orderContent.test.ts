@@ -8,6 +8,7 @@ import {
   getRestaurantIcon,
   FALLBACK_RESTAURANT_ICON,
   formatRouteEstimate,
+  formatOrderDistance,
 } from './orderContent'
 
 describe('OrderItemsSchema / parseOrderItemsInput / formatOrderItems', () => {
@@ -100,5 +101,30 @@ describe('formatRouteEstimate', () => {
 
     const fallback = { distanceKm: 0.291310733330948, etaMinutes: 3.5, geometry: null }
     expect(formatRouteEstimate(fallback, 2)).toBe('~0.29 km · distance estimate')
+  })
+})
+
+describe('formatOrderDistance', () => {
+  it('labels a routed order as a walking estimate, recomputing ETA from the same 5 km/h constant', () => {
+    // 1.0 km / 5 km/h * 60 = 12 min.
+    expect(formatOrderDistance({ distance_km: 1, distance_source: 'routed' })).toBe('1.0 km · ~12 min walk')
+  })
+
+  it('never labels a fallback order as a walk', () => {
+    const result = formatOrderDistance({ distance_km: 0.42, distance_source: 'fallback' })
+    expect(result).toBe('~0.4 km · distance estimate')
+    expect(result).not.toContain('walk')
+  })
+
+  it('treats a legacy/unresolved order with no distance_source the same as fallback if a number exists', () => {
+    // Shouldn't happen from the real creation flow (unresolved implies no
+    // distance_km either), but must never claim a walk it can't back.
+    const result = formatOrderDistance({ distance_km: 0.42, distance_source: null })
+    expect(result).not.toContain('walk')
+  })
+
+  it('returns null (no distance claim at all) when distance_km is null', () => {
+    expect(formatOrderDistance({ distance_km: null, distance_source: null })).toBeNull()
+    expect(formatOrderDistance({ distance_km: null, distance_source: 'unresolved' })).toBeNull()
   })
 })

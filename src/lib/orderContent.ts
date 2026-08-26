@@ -84,3 +84,27 @@ export const formatRouteEstimate = (route: RouteEstimate, decimals: 1 | 2 = 1): 
   }
   return `~${km} km · distance estimate`
 }
+
+/**
+ * Same routed/fallback honesty rule as formatRouteEstimate above, but for
+ * an already-persisted order row (Home's board) rather than a live RPC
+ * result - orders only ever store distance_km/distance_source, never a
+ * route's geometry or its eta_minutes (see the orders.distance_source
+ * migration), so ETA here is recomputed from the same public 5 km/h
+ * constant compute_walking_route() itself uses - not a new invented
+ * number, just re-deriving it from a real, already-trustworthy distance.
+ * Only 'routed' ever gets "min walk" wording; every other case ('fallback',
+ * 'unresolved', or a legacy null) is either a plain distance estimate or
+ * no distance claim at all. See PHASE3_3B_NEARBY_DISCOVERY_SPEC.md §6.
+ */
+export type OrderDistance = { distance_km: number | null; distance_source: 'routed' | 'fallback' | 'unresolved' | null }
+
+export const formatOrderDistance = (order: OrderDistance): string | null => {
+  if (order.distance_km == null) return null
+  const km = order.distance_km.toFixed(1)
+  if (order.distance_source === 'routed') {
+    const etaMinutes = Math.round((order.distance_km / 5) * 60)
+    return `${km} km · ~${etaMinutes} min walk`
+  }
+  return `~${km} km · distance estimate`
+}
