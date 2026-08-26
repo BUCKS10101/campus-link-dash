@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AlertCircle } from 'lucide-react'
 import { useChat } from '@/hooks/useChat'
+import { useNotifications } from '@/hooks/useNotifications'
 import { useToast } from '@/hooks/use-toast'
 import { Text } from '@/components/primitives'
 import { cn, getErrorMessage } from '@/lib/utils'
@@ -50,9 +51,19 @@ const ChatSkeleton = () => (
  */
 export function ChatThread({ orderId, currentUserId, counterpartName, contextLine }: ChatThreadProps) {
   const { messages, loading, error, sendMessage, refetch } = useChat(orderId)
+  const { markOrderChatRead } = useNotifications()
   const { toast } = useToast()
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+
+  // Opening this thread is the explicit act of handling its chat
+  // notification - on mount, and again whenever a new message arrives
+  // while it stays open, so a fresh message doesn't sit unread behind an
+  // already-open conversation. See PHASE3_3C_NOTIFICATIONS_SPEC.md §9/§11.
+  useEffect(() => {
+    void markOrderChatRead(orderId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId, messages.length])
 
   const handleSend = async () => {
     if (!draft.trim() || sending) return

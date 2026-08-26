@@ -2,6 +2,7 @@ import * as React from "react";
 import { Outlet } from "react-router-dom";
 
 import { DesktopNav } from "./DesktopNav";
+import { MobileHeader } from "./MobileHeader";
 import { MobileNav } from "./MobileNav";
 import { PageContainer } from "./PageContainer";
 
@@ -22,6 +23,7 @@ export function AppShell() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <DesktopNav />
+      <MobileHeader />
       <main className="flex-1">
         <PageContainer className="pt-6 pb-24 md:pt-8 md:pb-12">
           <Outlet />

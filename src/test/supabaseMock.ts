@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 
-export type MockResult = { data: unknown; error: { code?: string; message?: string } | null }
+export type MockResult = { data: unknown; error: { code?: string; message?: string } | null; count?: number | null }
 
 /**
  * A minimal stand-in for the supabase-js fluent query builder. Every
@@ -19,6 +19,8 @@ export type QueryBuilder = {
   or: (...args: unknown[]) => QueryBuilder
   lt: (...args: unknown[]) => QueryBuilder
   gte: (...args: unknown[]) => QueryBuilder
+  is: (...args: unknown[]) => QueryBuilder
+  limit: (...args: unknown[]) => QueryBuilder
   order: (...args: unknown[]) => QueryBuilder
   single: () => Promise<MockResult>
 } & PromiseLike<MockResult>
@@ -34,6 +36,8 @@ export function createQueryBuilder(result: MockResult): QueryBuilder {
     or: vi.fn(() => builder),
     lt: vi.fn(() => builder),
     gte: vi.fn(() => builder),
+    is: vi.fn(() => builder),
+    limit: vi.fn(() => builder),
     order: vi.fn(() => builder),
     single: vi.fn(() => Promise.resolve(result)),
     then: (onFulfilled, onRejected) => Promise.resolve(result).then(onFulfilled, onRejected),

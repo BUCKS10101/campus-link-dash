@@ -8,6 +8,8 @@ export interface NavItemProps {
   item: NavItemConfig;
   active: boolean;
   variant: "desktop" | "mobile";
+  /** A small unread dot over the icon - mobile only, currently just Activity (Phase 3C). */
+  showUnreadDot?: boolean;
 }
 
 /**
@@ -19,7 +21,7 @@ export interface NavItemProps {
  * tab bar without them is genuinely harder to scan at a glance while
  * walking.
  */
-export function NavItem({ item, active, variant }: NavItemProps) {
+export function NavItem({ item, active, variant, showUnreadDot = false }: NavItemProps) {
   const Icon = item.icon;
 
   if (variant === "desktop") {
@@ -50,8 +52,16 @@ export function NavItem({ item, active, variant }: NavItemProps) {
         active ? "text-primary" : "text-muted-foreground",
       )}
     >
-      <Icon className="size-5" aria-hidden="true" strokeWidth={active ? 2.25 : 1.75} />
-      <span className="font-body text-[11px] font-medium leading-none">{item.label}</span>
+      <span className="relative inline-flex">
+        <Icon className="size-5" aria-hidden="true" strokeWidth={active ? 2.25 : 1.75} />
+        {showUnreadDot && (
+          <span aria-hidden="true" className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-primary" />
+        )}
+      </span>
+      <span className="font-body text-[11px] font-medium leading-none">
+        {item.label}
+        {showUnreadDot && <span className="sr-only"> (unread)</span>}
+      </span>
     </Link>
   );
 }

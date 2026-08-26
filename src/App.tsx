@@ -10,6 +10,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { AppShell } from "@/components/shell";
 import { LoadingRegion } from "@/components/primitives";
 import { AuthProvider } from "@/hooks/useAuth";
+import { NotificationsProvider } from "@/hooks/useNotifications";
 
 // Login stays eager: it is the cold-start destination for every signed-out
 // visitor (ProtectedRoute redirects there), so lazy-loading it would cost
@@ -37,6 +38,10 @@ const App = () => (
                 for why per-component listeners caused both duplicate
                 profile fetches and a real deadlock on reload. */}
             <AuthProvider>
+            {/* Needs useAuth(), so nested inside AuthProvider - only
+                subscribes/fetches while a user is signed in (see
+                useNotifications.tsx). */}
+            <NotificationsProvider>
               <Suspense fallback={<LoadingRegion label="Loading CampusLink" />}>
                 <Routes>
                   <Route path="/login" element={<Login />} />
@@ -61,6 +66,7 @@ const App = () => (
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Suspense>
+            </NotificationsProvider>
             </AuthProvider>
           </BrowserRouter>
         </TooltipProvider>

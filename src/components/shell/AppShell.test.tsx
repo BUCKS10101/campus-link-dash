@@ -10,6 +10,23 @@ vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => mockUseAuth(),
 }))
 
+// AppShell now renders NotificationBell (desktop nav + mobile header) and
+// MobileNav reads unreadCount for the Activity tab's dot - neither is
+// under test here, so a fixed empty/zero result keeps this file focused
+// on shell/nav behavior.
+vi.mock('@/hooks/useNotifications', () => ({
+  useNotifications: () => ({
+    notifications: [],
+    unreadCount: 0,
+    loading: false,
+    hasMore: false,
+    loadMore: vi.fn(),
+    markRead: vi.fn(),
+    markAllRead: vi.fn(),
+    markOrderChatRead: vi.fn(),
+  }),
+}))
+
 const AUTH_USER = {
   user: { id: 'u1', email: 'jane@vitstudent.ac.in' },
   profile: { id: 'u1', name: 'Jane Doe', email: 'jane@vitstudent.ac.in', phone: '9876543210' },
@@ -63,7 +80,10 @@ describe('route protection', () => {
     mockUseAuth.mockReturnValue({ user: AUTH_USER, loading: false, signOut: vi.fn() })
     renderShellApp('/profile')
     expect(screen.getByText('Profile Page')).toBeInTheDocument()
-    expect(screen.getByText('CampusLink')).toBeInTheDocument()
+    // Wordmark appears twice - once in DesktopNav, once in MobileHeader
+    // (Phase 3C) - jsdom renders both regardless of the md:hidden/hidden
+    // classes real CSS would apply, so both are expected here.
+    expect(screen.getAllByText('CampusLink').length).toBeGreaterThan(0)
   })
 })
 

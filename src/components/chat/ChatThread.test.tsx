@@ -9,6 +9,20 @@ vi.mock('@/hooks/useChat', () => ({
   useChat: (orderId: string) => mockUseChat(orderId),
 }))
 
+const mockMarkOrderChatRead = vi.fn()
+vi.mock('@/hooks/useNotifications', () => ({
+  useNotifications: () => ({
+    notifications: [],
+    unreadCount: 0,
+    loading: false,
+    hasMore: false,
+    loadMore: vi.fn(),
+    markRead: vi.fn(),
+    markAllRead: vi.fn(),
+    markOrderChatRead: mockMarkOrderChatRead,
+  }),
+}))
+
 const { ChatThread } = await import('./ChatThread')
 
 const MESSAGE_FROM_ME = {
@@ -150,5 +164,26 @@ describe('ChatThread', () => {
     await userEvent.type(input, '   ')
     expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
     expect(mockSendMessage).not.toHaveBeenCalled()
+  })
+
+  it('marks this order\'s chat notification read on mount - opening the thread is handling it', () => {
+    mockUseChat.mockReturnValue(chatReturn())
+    renderThread()
+    expect(mockMarkOrderChatRead).toHaveBeenCalledWith('order-1')
+  })
+
+  it('marks it read again when a new message arrives while the thread stays open', () => {
+    mockUseChat.mockReturnValue(chatReturn({ messages: [MESSAGE_FROM_ME] }))
+    const { rerender } = render(
+      <ChatThread orderId="order-1" currentUserId="me" counterpartName="Priya" contextLine="DC Cafe → Men's Hostel K" />
+    )
+    const callsAfterMount = mockMarkOrderChatRead.mock.calls.length
+
+    mockUseChat.mockReturnValue(chatReturn({ messages: [MESSAGE_FROM_ME, MESSAGE_FROM_THEM] }))
+    rerender(
+      <ChatThread orderId="order-1" currentUserId="me" counterpartName="Priya" contextLine="DC Cafe → Men's Hostel K" />
+    )
+
+    expect(mockMarkOrderChatRead.mock.calls.length).toBeGreaterThan(callsAfterMount)
   })
 })

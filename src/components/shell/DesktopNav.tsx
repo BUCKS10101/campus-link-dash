@@ -6,13 +6,14 @@ import { NavItem } from "./NavItem";
 import { CreateAction } from "./CreateAction";
 import { AccountMenu } from "./AccountMenu";
 import { PageContainer } from "./PageContainer";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 /**
  * Desktop masthead — a publication's header, not a SaaS navbar. A single
  * ink rule underneath, the wordmark set in the display serif, navigation
- * as plain text. No search, no notification bell (both were dead in the
- * previous build — unbound state, a static dot with no notifications
- * model behind it).
+ * as plain text. No search — the previous build's search was dead
+ * (unbound state). The notification bell (Phase 3C) is real: it's backed
+ * by an actual notifications model, not the old static dot.
  */
 export function DesktopNav() {
   const location = useLocation();
@@ -78,6 +79,7 @@ export function DesktopNav() {
         </nav>
 
         <div className="ml-auto flex items-center gap-5">
+          <NotificationBell />
           <CreateAction href="/post-request" variant="desktop" />
           <AccountMenu />
         </div>
