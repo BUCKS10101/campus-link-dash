@@ -1,0 +1,59 @@
+%% CampusLink — Phase 3D: Ratings + Trust
+%% One valid Mermaid diagram, in two subgraphs (a raw .mmd file can only
+%% hold one diagram definition, so both requested views live here as
+%% subgraphs of a single flowchart rather than two separate files):
+%%   1) "Rating & Trust Flow"          - the end-to-end product/event flow
+%%   2) "Security / Data Relationship" - User -> Order -> Rating -> Reviewee/Profile
+%% See PHASE3_3D_RATINGS_TRUST_SPEC.md for the full architecture this diagrams.
+
+flowchart TD
+
+  subgraph FLOW["Rating and Trust Flow"]
+    direction TD
+    A["User completes an order\n(requester + deliverer collaborate)"] --> B["Order transitions to 'delivered'\n(OTP-verified, existing trigger)"]
+    B --> C["Eligible participants determined\nrequester_id + deliverer_id on that order"]
+    C --> D{"Rating eligibility check\n(Activity 'Earlier' section, per participant)"}
+    D -->|"already rated this order"| D1["No prompt shown\n(order_id already in viewer's own ratings)"]
+    D -->|"not yet rated, order delivered"| E["'Rate this delivery' prompt\nstars 1-5 + optional short comment"]
+    E --> F["Rating submission\nsubmit_rating(order_id, score, comment)"]
+    F --> G{"Server validation\n(SECURITY DEFINER RPC)"}
+    G -->|"not a participant"| G1["Rejected"]
+    G -->|"order not delivered"| G2["Rejected"]
+    G -->|"already rated"| G3["Rejected"]
+    G -->|"score outside 1-5"| G4["Rejected"]
+    G -->|"all checks pass"| H["Rating persisted\nreviewee_id derived server-side,\nnever client-supplied"]
+    H --> I["Aggregate reputation\nno cache - avg()/count() computed live"]
+    I --> J["get_profile_reputation(profile_id)\nread on Profile page load"]
+    J --> K["Profile display\nRating 4.8 - based on 17 ratings\nCompleted deliveries 23"]
+    H -.-> L["Optional notification\nNOT implemented in v1 -\nActivity + existing order_delivered\nalready cover this"]
+    K --> M["Future: matching / trust integration\n3F, deferred - documented only"]
+    I --> M
+  end
+
+  subgraph SEC["Security and Data Relationship"]
+    direction LR
+    U1["User A (auth.uid())"] -->|"participates in"| O["Order\nrequester_id / deliverer_id\nstatus = 'delivered'"]
+    U2["User B (other participant)"] -->|"participates in"| O
+    O -->|"validated by submit_rating()"| R["Rating\norder_id, reviewer_id, reviewee_id\nscore 1-5, comment <= 300 chars\nunique(order_id, reviewer_id)"]
+    U1 -->|"reviewer_id, derived from auth.uid()"| R
+    R -->|"reviewee_id, derived: other participant"| U2
+    R -->|"row visible only to"| VIS["reviewer + reviewee\nratings_select_participant RLS"]
+    R -->|"aggregated by\nget_profile_reputation()"| AGG["avg_rating, rating_count\ncompleted_deliveries\n(from orders, independent of ratings)"]
+    AGG -->|"visible to any authenticated user"| PUB["Public aggregate reputation\nProfile display"]
+    VIS -->|"NOT visible to anyone else"| PRIV["Individual score + comment\nstay participant-only"]
+    P["profiles.rating / .successful_deliveries / .balance"] -.->|"NOT used by 3D\npre-existing write-hole, left untouched"| O
+  end
+
+  style D1 fill:#eee,stroke:#999
+  style G1 fill:#f8d7da,stroke:#c00
+  style G2 fill:#f8d7da,stroke:#c00
+  style G3 fill:#f8d7da,stroke:#c00
+  style G4 fill:#f8d7da,stroke:#c00
+  style H fill:#d4edda,stroke:#2a7
+  style L fill:#eee,stroke:#999,stroke-dasharray: 4 3
+  style M fill:#eee,stroke:#999,stroke-dasharray: 4 3
+  style R fill:#d4edda,stroke:#2a7
+  style AGG fill:#d1ecf1,stroke:#17a
+  style PUB fill:#d1ecf1,stroke:#17a
+  style PRIV fill:#f8d7da,stroke:#c00
+  style P fill:#eee,stroke:#999,stroke-dasharray: 4 3

@@ -96,6 +96,19 @@ export const OtpCodeSchema = z
   .trim()
   .regex(/^\d{6}$/, 'Enter the 6-digit code')
 
+// ---------- Ratings (Phase 3D) ----------
+
+export const RatingSchema = z.object({
+  score: z.number().int().min(1, 'Pick a star rating').max(5, 'Pick a star rating'),
+  comment: z
+    .string()
+    .trim()
+    .max(300, 'Comment must be under 300 characters')
+    .optional()
+    .or(z.literal('')),
+})
+export type RatingInput = z.infer<typeof RatingSchema>
+
 /**
  * Validates `data` against `schema`, returning either the parsed value or a
  * single human-readable error message (the first issue) to show in a toast.

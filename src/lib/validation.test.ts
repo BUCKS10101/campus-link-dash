@@ -6,6 +6,7 @@ import {
   ProfileUpdateSchema,
   ChatMessageSchema,
   OtpCodeSchema,
+  RatingSchema,
   validateOrThrow,
 } from './validation'
 
@@ -190,6 +191,40 @@ describe('OtpCodeSchema', () => {
   it('rejects a code with letters or the wrong length', () => {
     expect(OtpCodeSchema.safeParse('12a456').success).toBe(false)
     expect(OtpCodeSchema.safeParse('1234').success).toBe(false)
+  })
+})
+
+describe('RatingSchema', () => {
+  it('accepts a score with no comment', () => {
+    expect(RatingSchema.safeParse({ score: 5 }).success).toBe(true)
+  })
+
+  it('accepts a score with a short comment', () => {
+    expect(RatingSchema.safeParse({ score: 4, comment: 'Fast and careful!' }).success).toBe(true)
+  })
+
+  it('accepts an empty-string comment (treated as no comment)', () => {
+    expect(RatingSchema.safeParse({ score: 3, comment: '' }).success).toBe(true)
+  })
+
+  it('rejects a score of 0 or below 1', () => {
+    expect(RatingSchema.safeParse({ score: 0 }).success).toBe(false)
+  })
+
+  it('rejects a score above 5', () => {
+    expect(RatingSchema.safeParse({ score: 6 }).success).toBe(false)
+  })
+
+  it('rejects a non-integer score', () => {
+    expect(RatingSchema.safeParse({ score: 4.5 }).success).toBe(false)
+  })
+
+  it('rejects a comment over 300 characters', () => {
+    expect(RatingSchema.safeParse({ score: 5, comment: 'a'.repeat(301) }).success).toBe(false)
+  })
+
+  it('accepts a comment at exactly 300 characters', () => {
+    expect(RatingSchema.safeParse({ score: 5, comment: 'a'.repeat(300) }).success).toBe(true)
   })
 })
 

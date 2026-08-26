@@ -7,7 +7,9 @@ import { AlertCircle, ChevronDown } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useOrders, type WalkingRoute } from '@/hooks/useOrders'
+import { useRatings } from '@/hooks/useRatings'
 import { useToast } from '@/hooks/use-toast'
+import { RatingDialog } from '@/components/ratings/RatingDialog'
 import { getErrorMessage, cn } from '@/lib/utils'
 import { formatOrderItems, formatDeliveryLocation, formatRouteEstimate } from '@/lib/orderContent'
 import { Text, Rule, StatusBadge } from '@/components/primitives'
@@ -603,9 +605,13 @@ const MyOrders = () => {
   const { toast } = useToast()
   const { user, loading: authLoading } = useAuth()
   const { orders, loading, error, fetchOrders, updateOrderStatus, getMyOrderOtp, verifyDeliveryOtp, computeWalkingRoute, computeWalkingRouteCustom } = useOrders()
+  const { fetchMyRatedOrderIds } = useRatings()
   const [searchParams] = useSearchParams()
   const [expandedRequesterId, setExpandedRequesterId] = useState<string | null>(null)
   const [expandedDelivererId, setExpandedDelivererId] = useState<string | null>(null)
+  // One query per Activity load, not one per past order row (Phase 3D) -
+  // see PHASE3_3D_RATINGS_TRUST_SPEC.md §10.
+  const [ratedOrderIds, setRatedOrderIds] = useState<Set<string>>(new Set())
   // Only the very first load shows the full skeleton - refetch() after
   // marking an order picked up/delivered sets `loading` again too, and
   // blanking the whole page back to a skeleton at that moment would drop
@@ -616,6 +622,12 @@ const MyOrders = () => {
     if (user) {
       fetchOrders({ mine: { as: 'either', userId: user.user.id } })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    fetchMyRatedOrderIds(user.user.id).then(setRatedOrderIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
@@ -751,20 +763,34 @@ const MyOrders = () => {
         <section className="mt-16 max-w-measure">
           <Text variant="label" tone="faint" as="div" className="border-b border-border pb-3">Earlier</Text>
           <div>
-            {past.map((order, i) => (
-              <React.Fragment key={order.id}>
-                {i > 0 && <Rule />}
-                <div className="flex items-center justify-between gap-4 py-2.5">
-                  <div className="min-w-0">
-                    <Text variant="caption" tone="muted" className="block font-semibold">{order.restaurant_name}</Text>
-                    <Text variant="caption" tone="faint" as="p">
-                      {order.requester_id === user.user.id ? 'Asked' : 'Carried'} · {new Date(order.created_at).toLocaleDateString()}
-                    </Text>
+            {past.map((order, i) => {
+              const isRequester = order.requester_id === user.user.id
+              const counterpartName = (isRequester ? order.deliverer_profile?.name : order.requester_profile?.name) ?? null
+              const canRate = order.status === 'delivered' && !ratedOrderIds.has(order.id)
+              return (
+                <React.Fragment key={order.id}>
+                  {i > 0 && <Rule />}
+                  <div className="flex items-center justify-between gap-4 py-2.5">
+                    <div className="min-w-0">
+                      <Text variant="caption" tone="muted" className="block font-semibold">{order.restaurant_name}</Text>
+                      <Text variant="caption" tone="faint" as="p">
+                        {isRequester ? 'Asked' : 'Carried'} · {new Date(order.created_at).toLocaleDateString()}
+                      </Text>
+                      {canRate && (
+                        <div className="mt-1.5">
+                          <RatingDialog
+                            orderId={order.id}
+                            counterpartName={counterpartName}
+                            onSubmitted={(ratedId) => setRatedOrderIds((prev) => new Set(prev).add(ratedId))}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    <StatusBadge status={order.status} compact />
                   </div>
-                  <StatusBadge status={order.status} compact />
-                </div>
-              </React.Fragment>
-            ))}
+                </React.Fragment>
+              )
+            })}
           </div>
         </section>
       )}

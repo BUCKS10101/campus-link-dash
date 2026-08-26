@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useTheme } from 'next-themes'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -15,10 +15,12 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useAuth } from '@/hooks/useAuth'
+import { useRatings } from '@/hooks/useRatings'
 import { useToast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/utils'
 import { ProfileUpdateSchema } from '@/lib/validation'
 import { Text } from '@/components/primitives'
+import type { ProfileReputation } from '@/lib/database-types'
 
 type FieldErrors = { name?: string; phone?: string }
 
@@ -141,7 +143,17 @@ const EditProfileDialog = ({
 
 const Profile = () => {
   const { user, loading: authLoading, updateProfile } = useAuth()
+  const { getProfileReputation } = useRatings()
   const { theme, setTheme } = useTheme()
+  const [reputation, setReputation] = useState<ProfileReputation | null>(null)
+
+  // One RPC call per Profile load - never blocks the rest of the page,
+  // never re-fetched on every render. See PHASE3_3D_RATINGS_TRUST_SPEC.md §9.
+  useEffect(() => {
+    if (!user) return
+    getProfileReputation(user.user.id).then(setReputation)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
 
   if (authLoading) {
     return (
@@ -186,6 +198,23 @@ const Profile = () => {
           </Text>
         </div>
       </div>
+
+      {reputation && (
+        <div className="mt-10 flex items-center gap-10 border-b-2 border-foreground pb-8">
+          <div>
+            <Text variant="label" tone="faint" as="div">Rating</Text>
+            <Text variant="h2" className="mt-1 block">
+              {reputation.avg_rating != null
+                ? `${reputation.avg_rating.toFixed(1)} · based on ${reputation.rating_count} rating${reputation.rating_count === 1 ? '' : 's'}`
+                : 'No ratings yet'}
+            </Text>
+          </div>
+          <div>
+            <Text variant="label" tone="faint" as="div">Completed deliveries</Text>
+            <Text variant="h2" className="mt-1 block">{reputation.completed_deliveries}</Text>
+          </div>
+        </div>
+      )}
 
       <div className="mt-12">
         <Text variant="label" tone="faint" as="div" className="pb-3">Manage</Text>
