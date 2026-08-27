@@ -54,6 +54,12 @@ describe('formatNotificationText - order/chat notifications', () => {
     )
   })
 
+  it('phrases cancellation without asserting whose order it was (Phase 3G) - recipient can be either participant', () => {
+    expect(formatNotificationText(orderNotification('order_cancelled', 'One Food World'))).toBe(
+      'The One Food World order was cancelled.',
+    )
+  })
+
   it('derives chat notification text the same way, from the same order', () => {
     expect(formatNotificationText(orderNotification('new_chat_message', 'DC Cafe'))).toBe(
       'New message about your DC Cafe order.',

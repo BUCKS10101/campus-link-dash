@@ -234,6 +234,89 @@ describe('updateOrderStatus', () => {
   })
 })
 
+describe('cancelOrder', () => {
+  // Phase 3G - see PHASE3_3G_DELIVERY_LIFECYCLE_SPEC.md. A single
+  // conditional UPDATE, not a read-then-write - there is no separate
+  // fetch to mock here, unlike updateOrderStatus above. The real
+  // authorization/race-safety backstop is the DB (RLS + the transition
+  // trigger); these tests only verify the client issues the correct
+  // one-statement filter and handles a 0-row result as a clean rejection.
+
+  it('cancels as the requester with the requester-scoped filter', async () => {
+    const builder = createQueryBuilder({ data: [{ id: 'order-1', status: 'cancelled' }], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.cancelOrder('order-1', 'requester', 'customer-1')
+    })
+
+    expect(builder.update).toHaveBeenCalledWith({ status: 'cancelled' })
+    expect(builder.eq).toHaveBeenCalledWith('id', 'order-1')
+    expect(builder.eq).toHaveBeenCalledWith('requester_id', 'customer-1')
+    expect(builder.in).toHaveBeenCalledWith('status', ['pending', 'accepted'])
+    expect(returned).toEqual({ id: 'order-1', status: 'cancelled' })
+  })
+
+  it('cancels as the deliverer with the deliverer-scoped filter, restricted to accepted only', async () => {
+    const builder = createQueryBuilder({ data: [{ id: 'order-2', status: 'cancelled' }], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.cancelOrder('order-2', 'deliverer', 'deliverer-1')
+    })
+
+    expect(builder.eq).toHaveBeenCalledWith('deliverer_id', 'deliverer-1')
+    // Corrected rule: once picked_up, the deliverer already has the item -
+    // normal cancellation is no longer offered, so 'picked_up'/
+    // 'out_for_delivery' must NOT appear in this filter. See
+    // PHASE3_3G_DELIVERY_LIFECYCLE_SPEC.md's corrected matrix.
+    expect(builder.in).toHaveBeenCalledWith('status', ['accepted'])
+  })
+
+  it('never writes cancelled_at/cancelled_by from the client - only status', async () => {
+    const builder = createQueryBuilder({ data: [{ id: 'order-1', status: 'cancelled' }], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.cancelOrder('order-1', 'requester', 'customer-1')
+    })
+
+    expect(builder.update).toHaveBeenCalledWith({ status: 'cancelled' })
+    expect(builder.update).not.toHaveBeenCalledWith(expect.objectContaining({ cancelled_at: expect.anything() }))
+    expect(builder.update).not.toHaveBeenCalledWith(expect.objectContaining({ cancelled_by: expect.anything() }))
+  })
+
+  it('rejects with a clear, refresh-oriented message when zero rows match (already moved on, race lost, or terminal)', async () => {
+    supabaseMock.from.mockReturnValue(createQueryBuilder({ data: [], error: null }))
+
+    const { result } = renderHook(() => useOrders())
+
+    await expect(
+      act(async () => {
+        await result.current.cancelOrder('order-1', 'requester', 'customer-1')
+      })
+    ).rejects.toThrow(/already moved on|refresh/i)
+  })
+
+  it('propagates a hard DB error (e.g. RLS/constraint rejection) rather than swallowing it', async () => {
+    supabaseMock.from.mockReturnValue(
+      createQueryBuilder({ data: null, error: { message: 'permission denied' } })
+    )
+
+    const { result } = renderHook(() => useOrders())
+
+    await expect(
+      act(async () => {
+        await result.current.cancelOrder('order-1', 'requester', 'customer-1')
+      })
+    ).rejects.toThrow(/permission denied/i)
+  })
+})
+
 describe('OTP verification', () => {
   it('verifyDeliveryOtp rejects a malformed code before ever calling the DB', async () => {
     const { result } = renderHook(() => useOrders())

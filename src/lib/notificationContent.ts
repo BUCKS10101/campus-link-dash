@@ -25,6 +25,11 @@ export const formatNotificationText = (notification: NotificationWithOrder): str
       return `Your ${restaurantName} order is out for delivery.`
     case 'order_delivered':
       return `Your ${restaurantName} order was delivered.`
+    case 'order_cancelled':
+      // Recipient varies by who cancelled (the other participant either
+      // way - see the migration's notify_order_status_change()), so this
+      // can't say "your order" the way the other order_* cases do.
+      return `The ${restaurantName} order was cancelled.`
     case 'new_chat_message':
       return `New message about your ${restaurantName} order.`
     case 'friend_request_received':

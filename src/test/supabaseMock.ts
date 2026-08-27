@@ -20,6 +20,7 @@ export type QueryBuilder = {
   lt: (...args: unknown[]) => QueryBuilder
   gte: (...args: unknown[]) => QueryBuilder
   is: (...args: unknown[]) => QueryBuilder
+  in: (...args: unknown[]) => QueryBuilder
   limit: (...args: unknown[]) => QueryBuilder
   order: (...args: unknown[]) => QueryBuilder
   single: () => Promise<MockResult>
@@ -37,6 +38,7 @@ export function createQueryBuilder(result: MockResult): QueryBuilder {
     lt: vi.fn(() => builder),
     gte: vi.fn(() => builder),
     is: vi.fn(() => builder),
+    in: vi.fn(() => builder),
     limit: vi.fn(() => builder),
     order: vi.fn(() => builder),
     single: vi.fn(() => Promise.resolve(result)),

@@ -10,6 +10,7 @@ import { useOrders, type WalkingRoute } from '@/hooks/useOrders'
 import { useRatings } from '@/hooks/useRatings'
 import { useToast } from '@/hooks/use-toast'
 import { RatingDialog } from '@/components/ratings/RatingDialog'
+import { CancelOrderDialog } from '@/components/orders/CancelOrderDialog'
 import { getErrorMessage, cn } from '@/lib/utils'
 import { formatOrderItems, formatDeliveryLocation, formatRouteEstimate } from '@/lib/orderContent'
 import { Text, Rule, StatusBadge } from '@/components/primitives'
@@ -370,6 +371,12 @@ const DeliveryTrackingSection = ({
 /** The rich order object — status, counterpart, next action, OTP, chat.
  * Only mounted for the order currently expanded in its lane, so OTP fetches
  * and chat subscriptions never fire for orders the user hasn't opened. */
+const REQUESTER_CANCELLABLE: Order['status'][] = ['pending', 'accepted']
+// Once picked_up, the deliverer already has the item in hand - normal
+// cancellation is no longer offered to them (see
+// PHASE3_3G_DELIVERY_LIFECYCLE_SPEC.md's corrected matrix).
+const DELIVERER_CANCELLABLE: Order['status'][] = ['accepted']
+
 const ActiveOrderDetail = ({
   order,
   role,
@@ -380,6 +387,7 @@ const ActiveOrderDetail = ({
   computeWalkingRouteCustom,
   onAdvance,
   onVerified,
+  onCancel,
 }: {
   order: OrderWithProfiles
   role: 'requester' | 'deliverer'
@@ -390,11 +398,15 @@ const ActiveOrderDetail = ({
   computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
   onAdvance: (order: OrderWithProfiles) => void
   onVerified: () => void
+  onCancel: (order: OrderWithProfiles, role: 'requester' | 'deliverer') => Promise<void>
 }) => {
   const isCustomer = role === 'requester'
   const isDeliverer = role === 'deliverer'
   const counterpart = isCustomer ? order.deliverer_profile : order.requester_profile
   const nextAction = isDeliverer ? NEXT_DELIVERER_ACTION[order.status] : undefined
+  const canCancel = isCustomer
+    ? REQUESTER_CANCELLABLE.includes(order.status)
+    : DELIVERER_CANCELLABLE.includes(order.status)
 
   return (
     <div className="animate-rise-in pb-6 pt-1">
@@ -416,6 +428,16 @@ const ActiveOrderDetail = ({
         <Button onClick={() => onAdvance(order)} className="mt-4 w-full sm:w-auto">
           {nextAction.label}
         </Button>
+      )}
+
+      {canCancel && (
+        <div className="mt-4">
+          <CancelOrderDialog
+            role={role}
+            hasDeliverer={!!order.deliverer_id}
+            onConfirm={() => onCancel(order, role)}
+          />
+        </div>
       )}
 
       <OtpPanel
@@ -460,6 +482,7 @@ const ActiveOrderRow = ({
   computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
   onAdvance: (order: OrderWithProfiles) => void
   onVerified: () => void
+  onCancel: (order: OrderWithProfiles, role: 'requester' | 'deliverer') => Promise<void>
 }) => {
   const isCustomer = role === 'requester'
 
@@ -532,6 +555,7 @@ const Lane = ({
   computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
   onAdvance: (order: OrderWithProfiles) => void
   onVerified: () => void
+  onCancel: (order: OrderWithProfiles, role: 'requester' | 'deliverer') => Promise<void>
 }) => {
   const empty = LANE_EMPTY[role]
 
@@ -604,7 +628,7 @@ const ActivitySkeleton = () => (
 const MyOrders = () => {
   const { toast } = useToast()
   const { user, loading: authLoading } = useAuth()
-  const { orders, loading, error, fetchOrders, updateOrderStatus, getMyOrderOtp, verifyDeliveryOtp, computeWalkingRoute, computeWalkingRouteCustom } = useOrders()
+  const { orders, loading, error, fetchOrders, updateOrderStatus, cancelOrder, getMyOrderOtp, verifyDeliveryOtp, computeWalkingRoute, computeWalkingRouteCustom } = useOrders()
   const { fetchMyRatedOrderIds } = useRatings()
   const [searchParams] = useSearchParams()
   const [expandedRequesterId, setExpandedRequesterId] = useState<string | null>(null)
@@ -671,6 +695,15 @@ const MyOrders = () => {
     } catch (err) {
       toast({ title: "Couldn't update", description: getErrorMessage(err, 'Please try again.'), variant: 'destructive' })
     }
+  }
+
+  // Rethrows on failure so CancelOrderDialog's own catch block shows the
+  // error inline (its "Couldn't cancel" toast) - this function only owns
+  // the refetch-on-success side effect, not error presentation.
+  const handleCancel = async (order: OrderWithProfiles, role: 'requester' | 'deliverer') => {
+    if (!user) return
+    await cancelOrder(order.id, role, user.user.id)
+    refetch()
   }
 
   if (authLoading || (loading && !hasLoadedOnce)) {
@@ -741,6 +774,7 @@ const MyOrders = () => {
           computeWalkingRouteCustom={computeWalkingRouteCustom}
           onAdvance={handleAdvance}
           onVerified={refetch}
+          onCancel={handleCancel}
         />
 
         <Lane
@@ -756,6 +790,7 @@ const MyOrders = () => {
           computeWalkingRouteCustom={computeWalkingRouteCustom}
           onAdvance={handleAdvance}
           onVerified={refetch}
+          onCancel={handleCancel}
         />
       </div>
 
@@ -767,6 +802,15 @@ const MyOrders = () => {
               const isRequester = order.requester_id === user.user.id
               const counterpartName = (isRequester ? order.deliverer_profile?.name : order.requester_profile?.name) ?? null
               const canRate = order.status === 'delivered' && !ratedOrderIds.has(order.id)
+              const isCancelled = order.status === 'cancelled'
+              // cancelled_at is null on any order cancelled before this
+              // migration existed - created_at is the only honest fallback
+              // for those, never a guessed date.
+              const historyDate = isCancelled && order.cancelled_at ? order.cancelled_at : order.created_at
+              const cancelledBySelf = isCancelled && order.cancelled_by === user.user.id
+              const historyLabel = isCancelled
+                ? (cancelledBySelf ? 'You cancelled' : 'They cancelled')
+                : (isRequester ? 'Asked' : 'Carried')
               return (
                 <React.Fragment key={order.id}>
                   {i > 0 && <Rule />}
@@ -774,7 +818,7 @@ const MyOrders = () => {
                     <div className="min-w-0">
                       <Text variant="caption" tone="muted" className="block font-semibold">{order.restaurant_name}</Text>
                       <Text variant="caption" tone="faint" as="p">
-                        {isRequester ? 'Asked' : 'Carried'} · {new Date(order.created_at).toLocaleDateString()}
+                        {historyLabel} · {new Date(historyDate).toLocaleDateString()}
                       </Text>
                       {canRate && (
                         <div className="mt-1.5">

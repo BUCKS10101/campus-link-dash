@@ -15,6 +15,7 @@ vi.mock('@/hooks/useAuth', () => ({
 
 const mockFetchOrders = vi.fn()
 const mockUpdateOrderStatus = vi.fn()
+const mockCancelOrder = vi.fn()
 const mockGetMyOrderOtp = vi.fn()
 const mockVerifyDeliveryOtp = vi.fn()
 const mockUseOrders = vi.fn()
@@ -87,7 +88,8 @@ const CARRYING_ORDER_PICKED_UP = { ...CARRYING_ORDER, status: 'picked_up' }
 
 const useOrdersReturn = (overrides = {}) => ({
   orders: [], loading: false, error: null, fetchOrders: mockFetchOrders,
-  updateOrderStatus: mockUpdateOrderStatus, getMyOrderOtp: mockGetMyOrderOtp, verifyDeliveryOtp: mockVerifyDeliveryOtp,
+  updateOrderStatus: mockUpdateOrderStatus, cancelOrder: mockCancelOrder,
+  getMyOrderOtp: mockGetMyOrderOtp, verifyDeliveryOtp: mockVerifyDeliveryOtp,
   ...overrides,
 })
 
@@ -379,5 +381,173 @@ describe('MyOrders / Activity - multiple active orders in one lane', () => {
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.getByText('Waiting for someone to take it.')).toBeInTheDocument()
+  })
+})
+
+describe('MyOrders / Activity - cancellation (Phase 3G)', () => {
+  const PENDING_UNACCEPTED = {
+    ...REQUESTED_ORDER,
+    id: 'order-6',
+    status: 'pending',
+    deliverer_id: null,
+    deliverer_profile: null,
+  }
+  const REQUESTED_ORDER_ACCEPTED = { ...REQUESTED_ORDER, status: 'accepted' }
+  const CARRYING_ORDER_OUT_FOR_DELIVERY = { ...CARRYING_ORDER, status: 'out_for_delivery' }
+
+  it('shows "Cancel this request" for the requester on a pending order', () => {
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [PENDING_UNACCEPTED] }))
+    renderMyOrders()
+
+    expect(screen.getByRole('button', { name: /cancel this request/i })).toBeInTheDocument()
+  })
+
+  it('shows "Cancel this request" for the requester on an accepted order', () => {
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [REQUESTED_ORDER_ACCEPTED] }))
+    renderMyOrders()
+
+    expect(screen.getByRole('button', { name: /cancel this request/i })).toBeInTheDocument()
+  })
+
+  it('does not offer requester cancellation once the order has been picked up', () => {
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [REQUESTED_ORDER] })) // status: picked_up
+    mockGetMyOrderOtp.mockResolvedValue('123456')
+    renderMyOrders()
+
+    expect(screen.queryByRole('button', { name: /cancel this request/i })).not.toBeInTheDocument()
+  })
+
+  it('shows "Can\'t complete this" for the deliverer while accepted', () => {
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [CARRYING_ORDER] })) // status: accepted
+    renderMyOrders()
+
+    expect(screen.getByRole('button', { name: /can't complete this/i })).toBeInTheDocument()
+  })
+
+  // Corrected per the product rule: once a deliverer marks an order
+  // picked_up, they physically have the item - normal cancellation is no
+  // longer offered to them (no refund/recovery flow exists to make a
+  // mid-delivery cancel safe). See PHASE3_3G_DELIVERY_LIFECYCLE_SPEC.md's
+  // corrected cancellation matrix.
+  it.each(['picked_up', 'out_for_delivery'] as const)(
+    'does not offer deliverer cancellation once the order is %s',
+    (status) => {
+      mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [{ ...CARRYING_ORDER, status }] }))
+      mockGetMyOrderOtp.mockResolvedValue('123456')
+      mockVerifyDeliveryOtp.mockResolvedValue(false)
+      renderMyOrders()
+
+      expect(screen.queryByRole('button', { name: /can't complete this/i })).not.toBeInTheDocument()
+    },
+  )
+
+  it('never shows a cancel action on a delivered order', () => {
+    const delivered = { ...CARRYING_ORDER, status: 'delivered' }
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [delivered] }))
+    renderMyOrders()
+
+    expect(screen.queryByRole('button', { name: /can't complete this/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /cancel this request/i })).not.toBeInTheDocument()
+  })
+
+  it('does not call cancelOrder just from clicking the trigger - only after confirming in the dialog', async () => {
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [PENDING_UNACCEPTED] }))
+    renderMyOrders()
+
+    await userEvent.click(screen.getByRole('button', { name: /cancel this request/i }))
+
+    expect(screen.getByRole('button', { name: /^cancel request$/i })).toBeInTheDocument()
+    expect(mockCancelOrder).not.toHaveBeenCalled()
+  })
+
+  it('requester confirming cancellation calls cancelOrder with the requester role, toasts, and refetches', async () => {
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [REQUESTED_ORDER_ACCEPTED] }))
+    mockCancelOrder.mockResolvedValue({ ...REQUESTED_ORDER_ACCEPTED, status: 'cancelled' })
+    renderMyOrders()
+
+    await userEvent.click(screen.getByRole('button', { name: /cancel this request/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^cancel request$/i }))
+
+    await waitFor(() => expect(mockCancelOrder).toHaveBeenCalledWith('order-1', 'requester', 'customer-1'))
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Cancelled' })))
+    expect(mockFetchOrders).toHaveBeenCalled()
+  })
+
+  it('deliverer confirming cancellation calls cancelOrder with the deliverer role', async () => {
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [CARRYING_ORDER] }))
+    mockGetMyOrderOtp.mockResolvedValue('123456')
+    mockCancelOrder.mockResolvedValue({ ...CARRYING_ORDER, status: 'cancelled' })
+    renderMyOrders()
+
+    await userEvent.click(screen.getByRole('button', { name: /can't complete this/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^cancel delivery$/i }))
+
+    await waitFor(() => expect(mockCancelOrder).toHaveBeenCalledWith('order-2', 'deliverer', 'customer-1'))
+  })
+
+  it('shows a race-condition-style error and keeps the dialog usable when cancellation fails', async () => {
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [REQUESTED_ORDER_ACCEPTED] }))
+    mockCancelOrder.mockRejectedValue(new Error('This order has already moved on - refresh to see its current status'))
+    renderMyOrders()
+
+    await userEvent.click(screen.getByRole('button', { name: /cancel this request/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^cancel request$/i }))
+
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: expect.stringMatching(/couldn't cancel/i) })
+    ))
+  })
+
+  it('mentions the deliverer will be notified when a requester cancels an already-accepted order', async () => {
+    mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [REQUESTED_ORDER_ACCEPTED] }))
+    renderMyOrders()
+
+    await userEvent.click(screen.getByRole('button', { name: /cancel this request/i }))
+
+    expect(screen.getByText(/notified/i)).toBeInTheDocument()
+  })
+
+  describe('past-order history copy', () => {
+    it('shows "You cancelled" when this viewer was the one who cancelled', () => {
+      const cancelled = {
+        ...REQUESTED_ORDER, id: 'order-7', status: 'cancelled',
+        cancelled_at: '2026-08-20T10:00:00.000Z', cancelled_by: 'customer-1',
+      }
+      mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [cancelled] }))
+      renderMyOrders()
+
+      expect(screen.getByText(/^You cancelled ·/)).toBeInTheDocument()
+    })
+
+    it('shows "They cancelled" when the other participant cancelled', () => {
+      const cancelled = {
+        ...REQUESTED_ORDER, id: 'order-7', status: 'cancelled',
+        cancelled_at: '2026-08-20T10:00:00.000Z', cancelled_by: 'deliverer-1',
+      }
+      mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [cancelled] }))
+      renderMyOrders()
+
+      expect(screen.getByText(/^They cancelled ·/)).toBeInTheDocument()
+    })
+
+    it('falls back to created_at for a pre-3G cancelled order with no cancelled_at', () => {
+      const legacyCancelled = {
+        ...REQUESTED_ORDER, id: 'order-7', status: 'cancelled',
+        cancelled_at: null, cancelled_by: null, created_at: '2026-08-01T00:00:00.000Z',
+      }
+      mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [legacyCancelled] }))
+      renderMyOrders()
+
+      expect(screen.getByText(new RegExp(new Date('2026-08-01T00:00:00.000Z').toLocaleDateString()))).toBeInTheDocument()
+    })
+
+    it('never shows a rate prompt or cancel action on an already-cancelled past order', () => {
+      const cancelled = { ...REQUESTED_ORDER, id: 'order-7', status: 'cancelled', cancelled_by: 'customer-1' }
+      mockUseOrders.mockReturnValue(useOrdersReturn({ orders: [cancelled] }))
+      renderMyOrders()
+
+      expect(screen.queryByRole('button', { name: /rate this delivery/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /cancel this request/i })).not.toBeInTheDocument()
+    })
   })
 })

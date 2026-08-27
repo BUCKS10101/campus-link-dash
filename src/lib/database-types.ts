@@ -58,6 +58,18 @@ export interface Order {
   distance_source: 'routed' | 'fallback' | 'unresolved' | null
   created_at: string
   /**
+   * Phase 3G - see PHASE3_3G_DELIVERY_LIFECYCLE_SPEC.md. Both null unless
+   * status is 'cancelled'. Server-stamped only, inside the same
+   * enforce_order_status_transition() trigger that already guards the
+   * 'delivered' transition - a client UPDATE can request status:
+   * 'cancelled', but can never write either of these two columns
+   * directly (no UPDATE grant on them, only SELECT). cancelled_by is
+   * whichever participant's auth.uid() performed the cancelling write,
+   * not a client-supplied id.
+   */
+  cancelled_at: string | null
+  cancelled_by: string | null
+  /**
    * Real column, but never selectable directly (column-level SELECT is
    * revoked - see supabase/migrations/20260824120300_otp_verification.sql).
    * Only present here so an Insert payload type-checks; use
@@ -201,6 +213,7 @@ export type NotificationType =
   | 'order_picked_up'
   | 'order_out_for_delivery'
   | 'order_delivered'
+  | 'order_cancelled'
   | 'new_chat_message'
   | 'friend_request_received'
   | 'friend_request_accepted'

@@ -16,7 +16,7 @@ const ORDER_COLUMNS = `
   id, requester_id, deliverer_id, restaurant_name, items, tip_amount,
   delivery_location, distance_km, distance_source, pickup_point_id,
   delivery_point_id, custom_delivery_lat, custom_delivery_lng,
-  custom_delivery_note, status, created_at
+  custom_delivery_note, status, created_at, cancelled_at, cancelled_by
 `
 
 const ORDER_COLUMNS_WITH_PROFILES = `
@@ -188,6 +188,53 @@ export const useOrders = () => {
     return data[0]
   }
 
+  /**
+   * A single conditional UPDATE, not a read-then-write - see
+   * PHASE3_3G_DELIVERY_LIFECYCLE_SPEC.md §4/§11. The `.in('status', ...)`
+   * + `.eq(roleColumn, userId)` filter is baked directly into the same
+   * statement that performs the cancellation, so there is no separate
+   * client-side read this could go stale between. The actual
+   * authorization/race-safety backstop is the DB's own
+   * `orders_update_requester_cancel` RLS policy (requester) /
+   * `orders_update_assigned_deliverer` policy + the `enforce_order_status_
+   * transition()` trigger's own actor-aware check (deliverer, see the
+   * migration - once the deliverer has physically picked the item up,
+   * the trigger itself refuses to let them cancel regardless of what RLS
+   * would otherwise allow) - this client-side filter only produces a
+   * clean, immediate zero-rows result instead of waiting on a network
+   * round trip to discover the same rejection. cancelled_at/cancelled_by
+   * are never part of this payload; they're stamped server-side inside
+   * the transition trigger.
+   */
+  const cancelOrder = async (
+    orderId: string,
+    role: 'requester' | 'deliverer',
+    userId: string,
+  ) => {
+    const roleColumn = role === 'requester' ? 'requester_id' : 'deliverer_id'
+    // Once picked_up/out_for_delivery, the deliverer already has the item
+    // in hand - normal cancellation stops being available to them at that
+    // point (no refund/recovery flow exists to make a mid-delivery cancel
+    // safe). The requester's own window (pending/accepted) is unaffected.
+    const validStatuses = role === 'requester'
+      ? ['pending', 'accepted']
+      : ['accepted']
+
+    const { data, error } = await supabase
+      .from('orders')
+      .update({ status: 'cancelled' })
+      .eq('id', orderId)
+      .eq(roleColumn, userId)
+      .in('status', validStatuses)
+      .select(ORDER_COLUMNS)
+
+    if (error) throw error
+    if (!data || data.length === 0) {
+      throw new Error('This order has already moved on - refresh to see its current status')
+    }
+    return data[0]
+  }
+
   /** Requester-only: fetch the OTP for their own order, to share with the deliverer. */
   const getMyOrderOtp = async (orderId: string): Promise<string> => {
     const { data, error } = await supabase.rpc('get_my_order_otp', { p_order_id: orderId })
@@ -297,6 +344,7 @@ export const useOrders = () => {
     createOrder,
     acceptOrder,
     updateOrderStatus,
+    cancelOrder,
     getMyOrderOtp,
     verifyDeliveryOtp,
     computeDistance,
