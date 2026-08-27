@@ -108,6 +108,47 @@ export interface CampusPoint {
   lng: number
 }
 
+/**
+ * Phase 3H - see PHASE3_3H_PREFERENCES_PERSONALIZATION_SPEC.md. One row
+ * per user (user_id is the primary key), created lazily on first save -
+ * a user with no row is the default/legacy state (every field below at
+ * its default), not an error. `discovery_radius_km`'s meaning is
+ * mode-dependent: a straight-line (haversine) proximity cutoff from the
+ * device's live position while `use_live_location` is on and a fresh
+ * position was obtained, otherwise unused (Mode B - preferred areas - is
+ * a pure membership filter with no radius component). No coordinate is
+ * ever part of this row or persisted anywhere else - see the spec's
+ * privacy model (§3.3).
+ */
+export interface UserPreferences {
+  user_id: string
+  discovery_radius_km: number | null
+  use_live_location: boolean
+  notify_chat_messages: boolean
+  notify_friend_events: boolean
+  discoverable: boolean
+  use_friends_in_recommendations: boolean
+  created_at: string
+}
+
+export const DEFAULT_USER_PREFERENCES: Omit<UserPreferences, 'user_id' | 'created_at'> = {
+  discovery_radius_km: null,
+  use_live_location: false,
+  notify_chat_messages: true,
+  notify_friend_events: true,
+  discoverable: true,
+  use_friends_in_recommendations: true,
+}
+
+/** A user's saved preferred campus points (Discovery Mode B) - many rows
+ * per user, joined against campus_points for display/filtering. */
+export interface UserPreferredPoint {
+  id: string
+  user_id: string
+  campus_point_id: string
+  created_at: string
+}
+
 export interface ChatMessage {
   id: string
   order_id: string
@@ -240,7 +281,7 @@ export interface Notification {
  * ever populated, matching `order_id`/`friendship_id`.
  */
 export interface NotificationWithOrder extends Notification {
-  order: { restaurant_name: string } | null
+  order: { restaurant_name: string; requester_id: string; deliverer_id: string | null } | null
   friendship: {
     requester_id: string
     addressee_id: string

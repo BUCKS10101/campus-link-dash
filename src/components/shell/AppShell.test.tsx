@@ -49,7 +49,8 @@ function renderShellApp(initialPath: string) {
         >
           <Route path="/" element={<div>Home Page</div>} />
           <Route path="/post-request" element={<div>Post Request Page</div>} />
-          <Route path="/my-orders" element={<div>My Orders Page</div>} />
+          <Route path="/activity/ordering" element={<div>Ordering Page</div>} />
+          <Route path="/activity/delivering" element={<div>Delivering Page</div>} />
           <Route path="/profile" element={<div>Profile Page</div>} />
         </Route>
       </Routes>
@@ -101,10 +102,20 @@ describe('active navigation state', () => {
     expect(homeLinks.every((el) => el.getAttribute('aria-current') !== 'page')).toBe(true)
   })
 
-  it('marks Activity current on /my-orders (its mapped route)', () => {
-    renderShellApp('/my-orders')
+  it('marks Activity current on /activity/ordering (its default sub-view)', () => {
+    renderShellApp('/activity/ordering')
+    // Desktop's Activity item is now a dropdown trigger (a button), not a
+    // link - the mobile bottom-tab Link is the one with a real href.
     const activityLinks = screen.getAllByRole('link', { name: /^activity$/i })
     expect(activityLinks.some((el) => el.getAttribute('aria-current') === 'page')).toBe(true)
+    const activityTrigger = screen.getByRole('button', { name: /^activity$/i })
+    expect(activityTrigger).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('marks Activity current on /activity/delivering too, not only the default sub-view', () => {
+    renderShellApp('/activity/delivering')
+    const activityTrigger = screen.getByRole('button', { name: /^activity$/i })
+    expect(activityTrigger).toHaveAttribute('aria-current', 'page')
   })
 
   it('marks Home current only on the literal root', () => {
@@ -126,11 +137,37 @@ describe('navigation targets', () => {
     createLinks.forEach((el) => expect(el.getAttribute('href')).toBe('/post-request'))
   })
 
-  it('clicking Activity navigates to the My Orders route', async () => {
+  it('clicking Activity on mobile navigates directly to Ordering (no dropdown there)', async () => {
     renderShellApp('/')
     const [activityLink] = screen.getAllByRole('link', { name: /^activity$/i })
     await userEvent.click(activityLink)
-    expect(await screen.findByText('My Orders Page')).toBeInTheDocument()
+    expect(await screen.findByText('Ordering Page')).toBeInTheDocument()
+  })
+
+  it('desktop Activity opens a click-triggered dropdown with exactly Ordering and Delivering', async () => {
+    renderShellApp('/')
+    const trigger = screen.getByRole('button', { name: /^activity$/i })
+    await userEvent.click(trigger)
+
+    const ordering = await screen.findByRole('menuitem', { name: /^ordering$/i })
+    const delivering = screen.getByRole('menuitem', { name: /^delivering$/i })
+    expect(ordering).toBeInTheDocument()
+    expect(delivering).toBeInTheDocument()
+    expect(screen.getAllByRole('menuitem').length).toBe(2)
+  })
+
+  it('clicking Ordering in the desktop Activity dropdown navigates to the Ordering route', async () => {
+    renderShellApp('/')
+    await userEvent.click(screen.getByRole('button', { name: /^activity$/i }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /^ordering$/i }))
+    expect(await screen.findByText('Ordering Page')).toBeInTheDocument()
+  })
+
+  it('clicking Delivering in the desktop Activity dropdown navigates to the Delivering route', async () => {
+    renderShellApp('/')
+    await userEvent.click(screen.getByRole('button', { name: /^activity$/i }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /^delivering$/i }))
+    expect(await screen.findByText('Delivering Page')).toBeInTheDocument()
   })
 
   it('clicking Post navigates to the Post Request route', async () => {

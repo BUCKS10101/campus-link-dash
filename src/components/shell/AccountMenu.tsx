@@ -67,7 +67,7 @@ export function AccountMenu() {
           <UserIcon className="size-4" aria-hidden="true" />
           Profile
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => navigate("/my-orders")} className="gap-2">
+        <DropdownMenuItem onClick={() => navigate("/activity/ordering")} className="gap-2">
           <Activity className="size-4" aria-hidden="true" />
           Activity
         </DropdownMenuItem>

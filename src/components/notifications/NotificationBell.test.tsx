@@ -10,6 +10,11 @@ vi.mock('@/hooks/useNotifications', () => ({
   useNotifications: () => mockUseNotifications(),
 }))
 
+const mockUseAuth = vi.fn()
+vi.mock('@/hooks/useAuth', () => ({
+  useAuth: () => mockUseAuth(),
+}))
+
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')
@@ -18,6 +23,11 @@ vi.mock('react-router-dom', async () => {
 
 const { NotificationBell } = await import('./NotificationBell')
 
+const CURRENT_USER = { user: { user: { id: 'u1' }, profile: null }, loading: false }
+
+// This viewer (u1) is the requester on this order - the "as requester"
+// case for routing, exercised throughout this file unless a test
+// overrides `order.deliverer_id` to u1 instead.
 const NOTIFICATION = {
   id: 'n1',
   recipient_id: 'u1',
@@ -26,7 +36,7 @@ const NOTIFICATION = {
   friendship_id: null,
   read_at: null,
   created_at: new Date().toISOString(),
-  order: { restaurant_name: 'One Food World' },
+  order: { restaurant_name: 'One Food World', requester_id: 'u1', deliverer_id: 'someone-else' },
   friendship: null,
 }
 
@@ -45,6 +55,7 @@ const renderBell = () => render(<MemoryRouter><NotificationBell /></MemoryRouter
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockUseAuth.mockReturnValue(CURRENT_USER)
 })
 
 describe('NotificationBell', () => {
@@ -87,7 +98,7 @@ describe('NotificationBell', () => {
 
     await userEvent.click(row)
     expect(mockMarkRead).toHaveBeenCalledWith('n1')
-    expect(mockNavigate).toHaveBeenCalledWith('/my-orders?order=order-1')
+    expect(mockNavigate).toHaveBeenCalledWith('/activity/ordering?order=order-1')
   })
 
   it('does not re-mark an already-read notification as read on click', async () => {
@@ -99,7 +110,23 @@ describe('NotificationBell', () => {
     const row = await screen.findByText('Someone accepted your One Food World order.')
     await userEvent.click(row)
     expect(mockMarkRead).not.toHaveBeenCalled()
-    expect(mockNavigate).toHaveBeenCalledWith('/my-orders?order=order-1')
+    expect(mockNavigate).toHaveBeenCalledWith('/activity/ordering?order=order-1')
+  })
+
+  it('routes to Delivering, not Ordering, when the viewer is this order\'s deliverer (Activity restructure)', async () => {
+    const asDeliverer = {
+      ...NOTIFICATION,
+      id: 'n3',
+      type: 'order_cancelled' as const,
+      order: { restaurant_name: 'One Food World', requester_id: 'someone-else', deliverer_id: 'u1' },
+    }
+    mockUseNotifications.mockReturnValue({ ...baseState, unreadCount: 1, notifications: [asDeliverer] })
+    renderBell()
+    await userEvent.click(screen.getByLabelText('Notifications, 1 unread'))
+
+    const row = await screen.findByText(/One Food World/)
+    await userEvent.click(row)
+    expect(mockNavigate).toHaveBeenCalledWith('/activity/delivering?order=order-1')
   })
 
   it('offers "Mark all read" only when something is unread, and calls it on click', async () => {

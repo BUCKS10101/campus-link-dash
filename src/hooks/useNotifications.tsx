@@ -3,9 +3,13 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/hooks/useAuth'
 import type { Notification, NotificationWithOrder } from '@/lib/database-types'
 
+// requester_id/deliverer_id are included so a click-through can tell
+// which Activity view (Ordering vs Delivering) this order belongs to
+// for the current viewer - see NotificationsPanel.tsx's handleOpen. Both
+// already-existing order columns, no schema change.
 const NOTIFICATION_COLUMNS = `
   id, recipient_id, type, order_id, friendship_id, read_at, created_at,
-  order:orders(restaurant_name),
+  order:orders(restaurant_name, requester_id, deliverer_id),
   friendship:friendships(
     requester_id, addressee_id,
     requester_profile:profiles!friendships_requester_id_fkey(name),

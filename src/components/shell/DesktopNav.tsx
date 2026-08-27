@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { NAV_ITEMS, isNavItemActive } from "./navConfig";
 import { NavItem } from "./NavItem";
@@ -8,6 +8,47 @@ import { AccountMenu } from "./AccountMenu";
 import { PageContainer } from "./PageContainer";
 import { BrandMark } from "./BrandMark";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+/**
+ * Activity's nav entry — the only one that opens a dropdown rather than
+ * navigating directly, since Activity restructured into two separate
+ * role views (Ordering/Delivering) with no single "the" Activity page
+ * anymore. Same DropdownMenu primitive AccountMenu already uses (opens
+ * on click, not hover), and the trigger is styled identically to a plain
+ * desktop NavItem - text-only, same active-state color, same
+ * `aria-current="page"` marker so DesktopNav's own sliding underline
+ * indicator (which measures `[aria-current="page"]`) keeps working
+ * unmodified for this item too.
+ */
+function ActivityNavDropdown({ active }: { active: boolean }) {
+  const navigate = useNavigate();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "relative py-2 font-body text-body-sm font-semibold outline-none",
+          "transition-colors duration-fast ease-out",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        Activity
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-40">
+        <DropdownMenuItem onClick={() => navigate("/activity/ordering")}>Ordering</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate("/activity/delivering")}>Delivering</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /**
  * Desktop masthead — a publication's header, not a SaaS navbar. A single
@@ -63,14 +104,20 @@ export function DesktopNav() {
         </Link>
 
         <nav ref={navRef} aria-label="Primary" className="relative flex items-center gap-7">
-          {items.map((item) => (
-            <NavItem
-              key={item.key}
-              item={item}
-              variant="desktop"
-              active={isNavItemActive(location.pathname, item.href)}
-            />
-          ))}
+          {items.map((item) => {
+            const active = isNavItemActive(location.pathname, item.matchPrefix ?? item.href);
+            if (item.key === "activity") {
+              return <ActivityNavDropdown key={item.key} active={active} />;
+            }
+            return (
+              <NavItem
+                key={item.key}
+                item={item}
+                variant="desktop"
+                active={active}
+              />
+            );
+          })}
           {indicator && (
             <span
               aria-hidden="true"

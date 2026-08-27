@@ -14,9 +14,13 @@ import { useNavigate, Link } from 'react-router-dom'
 import { formatOrderItems, formatDeliveryLocation, formatOrderDistance } from '@/lib/orderContent'
 import {
   rankQuickErrands, rankHighReward, rankFeatured, rankRecommended, hasUsableDistance,
-  filterByLocation, isLocationFilterActive, type LocationFilter, type ReputationSummary,
+  filterByLocation, isLocationFilterActive, filterByProximity, filterByPreferredAreas,
+  haversineDistanceKm,
+  type LocationFilter, type ReputationSummary, type GeoPoint,
 } from '@/lib/ranking'
 import { useCampusPoints } from '@/hooks/useCampusPoints'
+import { usePreferences } from '@/hooks/usePreferences'
+import { useDiscoveryLocation } from '@/hooks/useDiscoveryLocation'
 import { WhereFilter } from '@/components/home/WhereFilter'
 import { Rule, Text } from '@/components/primitives'
 import { getErrorMessage } from '@/lib/utils'
@@ -48,12 +52,25 @@ const REASON_CHIP_COUNT = 3
 // data, is appended into that same existing "distance" string rather
 // than adding a new slot to the shared card component, so Home's IA
 // change stays contained to this page.
-const toPostingRow = (order: OrderWithProfiles, reason: string | null) => ({
+// Phase 3H - when the live-location filter is genuinely active, the
+// GPS-to-pickup distance is the number that actually decided whether
+// this order is on the board at all - showing only the unrelated 3A
+// routed/fallback (delivery-side) distance here would leave that
+// decision unverifiable from the UI, which is exactly what made a real
+// bug report ("the board isn't filtering correctly") impossible to
+// distinguish from a misread caption. Shown as its own clearly-labeled
+// segment, never blended into or replacing the existing distance_km
+// figure - two different real numbers, both honest, per spec §3.1.
+const toPostingRow = (order: OrderWithProfiles, reason: string | null, proximityMeters: number | null) => ({
   id: order.id,
   restaurant: { name: order.restaurant_name },
   items: formatOrderItems(order.items),
   tip: order.tip_amount,
-  distance: [formatOrderDistance(order) ?? 'distance unknown', reason].filter(Boolean).join(' · '),
+  distance: [
+    proximityMeters != null ? `~${proximityMeters}m from you` : null,
+    formatOrderDistance(order) ?? 'distance unknown',
+    reason,
+  ].filter(Boolean).join(' · '),
   location: formatDeliveryLocation(order.delivery_location),
   timeAgo: new Date(order.created_at).toLocaleString('en-US', {
     hour: 'numeric',
@@ -102,6 +119,13 @@ const Home = () => {
   // fetch on mount (already used elsewhere, e.g. PostRequest), never
   // re-fetched on a filter change, and never touches MapLibre.
   const { points: campusPoints } = useCampusPoints()
+  // Phase 3H - see PHASE3_3H_PREFERENCES_PERSONALIZATION_SPEC.md §3/§8.
+  // Shared PreferencesProvider (App.tsx) - fetched once per signed-in
+  // session, not by this page. Discovery Mode A (live location) only ever
+  // requests a position while the user's own saved preference says to -
+  // never on its own.
+  const { preferences, preferredPointIds } = usePreferences()
+  const discoveryLocation = useDiscoveryLocation(!!preferences?.use_live_location)
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all')
   const [locationFilter, setLocationFilter] = useState<LocationFilter>(NO_LOCATION_FILTER)
   const [acceptingId, setAcceptingId] = useState<string | null>(null)
@@ -156,15 +180,68 @@ const Home = () => {
     if (!loading && !hasLoadedOnce) setHasLoadedOnce(true)
   }, [loading, hasLoadedOnce])
 
-  // Where (From/To) is applied first, client-side, over the one
-  // already-fetched feed - never a separate query. Every downstream
-  // grouping (featured/Quick errands/High reward/All) operates on this
-  // already-narrowed list, so the two kinds of filter always compose
-  // instead of fighting - see PHASE3_3B_NEARBY_DISCOVERY_SPEC.md's Where
-  // follow-up notes.
+  // Phase 3H discovery filter - exactly one of three states, never a
+  // silent combination:
+  //   Mode A: use_live_location is on AND a fresh position was granted
+  //           AND a radius is set -> pickup-only proximity filter.
+  //   Mode B: use_live_location is on, but Mode A isn't currently usable
+  //           (denied/unavailable/timeout/unsupported/still requesting/no
+  //           radius chosen yet) -> preferred-area membership filter, if
+  //           any areas are saved.
+  //   No filter: use_live_location is off. Saved preferred areas are
+  //           Mode A's fallback, not a standalone always-on filter - a
+  //           user who once picked preferred areas but never turned GPS
+  //           on (or turned it back off) must still see the full board.
+  //           Getting this gate wrong previously meant merely having
+  //           preferred areas saved silently filtered the entire Home
+  //           feed regardless of the GPS toggle - the root cause of Home
+  //           appearing to "lose everything." See spec §3.5/§8.
+  const pickupPointById = useMemo(
+    () => new Map<string, GeoPoint>(campusPoints.map((p) => [p.id, { lat: p.lat, lng: p.lng }])),
+    [campusPoints],
+  )
+  const discoveryFilteredOrders = useMemo(() => {
+    if (!preferences?.use_live_location) return orders
+
+    if (discoveryLocation.status === 'granted' && preferences.discovery_radius_km) {
+      const viewerPosition: GeoPoint = { lat: discoveryLocation.lat, lng: discoveryLocation.lng }
+      return filterByProximity(orders, viewerPosition, preferences.discovery_radius_km, pickupPointById)
+    }
+    if (preferredPointIds.size > 0) {
+      return filterByPreferredAreas(orders, preferredPointIds)
+    }
+    return orders
+  }, [orders, preferences?.use_live_location, preferences?.discovery_radius_km, discoveryLocation, preferredPointIds, pickupPointById])
+
+  // Phase 3H - the exact GPS-to-pickup distance for every order, only
+  // ever computed while Mode A is genuinely active (a granted position
+  // and a chosen radius) - this is what proves, on-screen, that the
+  // filter above is using the real number it claims to, rather than
+  // requiring anyone to trust the caption or re-derive it by hand.
+  const proximityMetersById = useMemo(() => {
+    const map = new Map<string, number>()
+    if (!(preferences?.use_live_location && discoveryLocation.status === 'granted' && preferences.discovery_radius_km)) {
+      return map
+    }
+    const viewerPosition: GeoPoint = { lat: discoveryLocation.lat, lng: discoveryLocation.lng }
+    for (const o of orders) {
+      if (!o.pickup_point_id) continue
+      const point = pickupPointById.get(o.pickup_point_id)
+      if (!point) continue
+      map.set(o.id, Math.round(haversineDistanceKm(viewerPosition, point) * 1000))
+    }
+    return map
+  }, [orders, preferences?.use_live_location, preferences?.discovery_radius_km, discoveryLocation, pickupPointById])
+
+  // Where (From/To) is applied next, client-side, over the discovery-
+  // filtered feed - never a separate query. Every downstream grouping
+  // (featured/Quick errands/High reward/All) operates on this
+  // already-narrowed list, so all filters always compose instead of
+  // fighting - see PHASE3_3B_NEARBY_DISCOVERY_SPEC.md's Where follow-up
+  // notes and PHASE3_3H_PREFERENCES_PERSONALIZATION_SPEC.md §8.
   const locationFilteredOrders = useMemo(
-    () => filterByLocation(orders, locationFilter),
-    [orders, locationFilter],
+    () => filterByLocation(discoveryFilteredOrders, locationFilter),
+    [discoveryFilteredOrders, locationFilter],
   )
 
   // The dominant opportunity up top is the best real deal on the board
@@ -210,6 +287,42 @@ const Home = () => {
     if (locationFilter.deliveryPointId) parts.push(`To: ${pointLabelById.get(locationFilter.deliveryPointId) ?? 'Unknown'}`)
     return parts.join(' · ')
   }, [locationFilter, pointLabelById])
+
+  // Phase 3H - never silent about which discovery source is actually
+  // active (spec §3.4/§8/§12). Covers all three states, not only the
+  // fallback ones: a positive "showing within Xm" line while Mode A is
+  // genuinely active, a fallback line while it was requested but isn't
+  // currently usable, and no line at all when discovery is off (the
+  // ordinary full board needs no explanation) or still being requested
+  // (a beat of "requesting" isn't worth interrupting the page for).
+  const discoveryFallbackNote = useMemo(() => {
+    if (!preferences?.use_live_location) return null
+
+    if (discoveryLocation.status === 'granted' && preferences.discovery_radius_km) {
+      const meters = Math.round(preferences.discovery_radius_km * 1000)
+      return `Showing requests within ${meters}m of you.`
+    }
+
+    const fallback = preferredPointIds.size > 0
+      ? 'showing your preferred areas instead'
+      : 'showing the full board instead'
+    switch (discoveryLocation.status) {
+      case 'denied': return `Location access is off — ${fallback}.`
+      case 'unavailable': return `Couldn't get your location — ${fallback}.`
+      case 'timeout': return `Location took too long — ${fallback}.`
+      case 'unsupported': return `Your browser doesn't support location — ${fallback}.`
+      case 'granted': return `Using your preferred areas instead — pick a radius in Settings to show requests near you.`
+      default: return null
+    }
+  }, [preferences?.use_live_location, preferences?.discovery_radius_km, discoveryLocation, preferredPointIds])
+
+  // Low-accuracy caveat - still applied (rejecting outright would make
+  // indoor/building-interior fixes, common on a campus, always fail),
+  // just disclosed rather than silently trusted.
+  const discoveryImpreciseNote =
+    discoveryLocation.status === 'granted' && discoveryLocation.accuracyMeters > 1000
+      ? 'Your location may be imprecise right now.'
+      : null
 
   // Small, explainable reason chips - never an opaque score, and never
   // attached to more than the top handful of each ranked list. A reward
@@ -279,9 +392,20 @@ const Home = () => {
     if (!user) return
     setAcceptingId(orderId)
     try {
+      // Looked up from the board's own already-fetched data (acceptOrder's
+      // own return value doesn't embed profiles) - the requester doesn't
+      // change on accept, so this is still accurate after the call below.
+      const requester = orders.find((o) => o.id === orderId)?.requester_profile
       await acceptOrder(orderId, user.user.id)
-      toast({ title: 'Taken', description: "It's yours — head to Activity to see it." })
-      navigate('/my-orders')
+      toast({
+        title: 'Taken',
+        description: requester
+          ? `${requester.name}${requester.phone ? ` · ${requester.phone}` : ''} — head to Activity to see it.`
+          : "It's yours — head to Activity to see it.",
+      })
+      // Accepting makes the viewer this order's deliverer, so the
+      // Delivering view (not Ordering) is where it actually shows up.
+      navigate('/activity/delivering')
     } catch (error) {
       toast({
         title: 'Someone got there first',
@@ -355,6 +479,12 @@ const Home = () => {
         </div>
       </div>
 
+      {(discoveryFallbackNote || discoveryImpreciseNote) && (
+        <Text variant="caption" tone="faint" as="p" className="pt-3">
+          {discoveryFallbackNote ?? discoveryImpreciseNote}
+        </Text>
+      )}
+
       {/* Keyed on the active filter so a filter change cross-fades this
           whole region in fresh, rather than the old list hard-cutting to
           new content. Dimmed (not blanked) while a refetch is in flight -
@@ -389,7 +519,7 @@ const Home = () => {
               Best on the board
             </Text>
             <OrderCard
-              order={toPostingRow(featuredOrder, reasonFor(featuredOrder.id))}
+              order={toPostingRow(featuredOrder, reasonFor(featuredOrder.id), proximityMetersById.get(featuredOrder.id) ?? null)}
               onAccept={handleAcceptOrder}
               accepting={acceptingId === featuredOrder.id}
               featured
@@ -419,7 +549,11 @@ const Home = () => {
                   style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}
                 >
                   <OrderCard
-                    order={toPostingRow(order, activeFilter === 'recommended' ? reasonForRecommended(order.id) : reasonFor(order.id))}
+                    order={toPostingRow(
+                      order,
+                      activeFilter === 'recommended' ? reasonForRecommended(order.id) : reasonFor(order.id),
+                      proximityMetersById.get(order.id) ?? null,
+                    )}
                     onAccept={handleAcceptOrder}
                     accepting={acceptingId === order.id}
                   />

@@ -245,7 +245,7 @@ const Profile = () => {
             <Text variant="caption" tone="muted" as="p" className="mt-0.5">What you've asked for and carried.</Text>
           </div>
           <Link
-            to="/my-orders"
+            to="/activity/ordering"
             className="font-body text-body-sm font-semibold text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             View activity

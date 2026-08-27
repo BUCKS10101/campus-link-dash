@@ -32,9 +32,13 @@ describe('NAV_ITEMS', () => {
     expect(NAV_ITEMS.some((i) => i.key === 'chat')).toBe(false)
   })
 
-  it('points Activity at the existing My Orders route, not an unbuilt page', () => {
+  it('points Activity at the Ordering default view, matching active-state across the whole /activity family', () => {
     const activity = NAV_ITEMS.find((i) => i.key === 'activity')
-    expect(activity?.href).toBe('/my-orders')
+    expect(activity?.href).toBe('/activity/ordering')
+    expect(activity?.matchPrefix).toBe('/activity')
+    expect(isNavItemActive('/activity/delivering', activity!.matchPrefix!)).toBe(true)
+    expect(isNavItemActive('/activity/ordering/history', activity!.matchPrefix!)).toBe(true)
+    expect(isNavItemActive('/friends', activity!.matchPrefix!)).toBe(false)
   })
 
   it('includes Friends as a first-class destination, not buried inside Profile', () => {

@@ -114,7 +114,7 @@ describe('Profile', () => {
 
   it('links into Activity instead of duplicating order management here', () => {
     renderProfile()
-    expect(screen.getByRole('link', { name: /view activity/i })).toHaveAttribute('href', '/my-orders')
+    expect(screen.getByRole('link', { name: /view activity/i })).toHaveAttribute('href', '/activity/ordering')
   })
 
   describe('friends (Phase 3E)', () => {
