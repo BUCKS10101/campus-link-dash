@@ -11,10 +11,15 @@ import {
   filterByLocation,
   matchesLocationFilter,
   isLocationFilterActive,
+  haversineDistanceKm,
+  filterByProximity,
+  filterByPreferredAreas,
   type RankableOrder,
   type RecommendableOrder,
   type ReputationSummary,
   type LocationFilterableOrder,
+  type GeoPoint,
+  type ProximityFilterableOrder,
 } from './ranking'
 
 const order = (overrides: Partial<RankableOrder> & { id: string }): RankableOrder => ({
@@ -375,5 +380,107 @@ describe('rankRecommended', () => {
     ]
     expect(() => rankRecommended(orders, VIEWER, noFriends, noReputation)).not.toThrow()
     expect(rankRecommended(orders, VIEWER, noFriends, noReputation).map((o) => o.id)).toEqual(['legacy'])
+  })
+})
+
+describe('haversineDistanceKm (Phase 3H)', () => {
+  it('is zero for the same point', () => {
+    const p: GeoPoint = { lat: 12.9, lng: 79.15 }
+    expect(haversineDistanceKm(p, p)).toBe(0)
+  })
+
+  it('matches the known ~111 km-per-degree-of-latitude approximation', () => {
+    const a: GeoPoint = { lat: 0, lng: 0 }
+    const b: GeoPoint = { lat: 1, lng: 0 }
+    expect(haversineDistanceKm(a, b)).toBeCloseTo(111.19, 0)
+  })
+
+  it('is symmetric', () => {
+    const a: GeoPoint = { lat: 12.9, lng: 79.15 }
+    const b: GeoPoint = { lat: 12.91, lng: 79.16 }
+    expect(haversineDistanceKm(a, b)).toBeCloseTo(haversineDistanceKm(b, a), 10)
+  })
+})
+
+describe('filterByProximity (Phase 3H, Discovery Mode A)', () => {
+  const VIEWER_POS: GeoPoint = { lat: 12.9, lng: 79.15 }
+  const NEAR_POINT_ID = 'near-point'
+  const FAR_POINT_ID = 'far-point'
+  const pointById = new Map<string, GeoPoint>([
+    [NEAR_POINT_ID, { lat: 12.9005, lng: 79.15 }], // a few tens of meters away
+    [FAR_POINT_ID, { lat: 13.9, lng: 79.15 }], // ~111 km away
+  ])
+
+  const proximityOrder = (overrides: Partial<ProximityFilterableOrder> & { id: string }): ProximityFilterableOrder => ({
+    pickup_point_id: null,
+    ...overrides,
+  })
+
+  it('includes an order whose pickup point is within the radius', () => {
+    const order = proximityOrder({ id: 'near', pickup_point_id: NEAR_POINT_ID })
+    expect(filterByProximity([order], VIEWER_POS, 1, pointById).map((o) => o.id)).toEqual(['near'])
+  })
+
+  it('excludes an order whose pickup point is outside the radius', () => {
+    const order = proximityOrder({ id: 'far', pickup_point_id: FAR_POINT_ID })
+    expect(filterByProximity([order], VIEWER_POS, 1, pointById)).toEqual([])
+  })
+
+  it('never excludes an order whose pickup point has no resolvable coordinate', () => {
+    const unresolved = proximityOrder({ id: 'unresolved', pickup_point_id: 'not-in-catalog' })
+    expect(filterByProximity([unresolved], VIEWER_POS, 0.001, pointById).map((o) => o.id)).toEqual(['unresolved'])
+  })
+
+  it('never excludes an order with no pickup point at all (legacy/custom-pin)', () => {
+    const legacy = proximityOrder({ id: 'legacy', pickup_point_id: null })
+    expect(filterByProximity([legacy], VIEWER_POS, 0.001, pointById).map((o) => o.id)).toEqual(['legacy'])
+  })
+
+  it('is independent of trust tier - a fallback order close by is filtered purely on distance, never promoted', () => {
+    // filterByProximity's own input shape carries no distance_source at
+    // all, so there is nothing for it to read or blend - this test
+    // documents that guarantee at the type level: a real order (with
+    // tier fields) still filters identically to the minimal shape above.
+    const fallbackNear = { id: 'fallback-near', pickup_point_id: NEAR_POINT_ID, distance_source: 'fallback' as const, distance_km: 5 }
+    const routedFar = { id: 'routed-far', pickup_point_id: FAR_POINT_ID, distance_source: 'routed' as const, distance_km: 0.2 }
+    const result = filterByProximity([fallbackNear, routedFar], VIEWER_POS, 1, pointById)
+    expect(result.map((o) => o.id)).toEqual(['fallback-near'])
+    // getTrustTier is untouched by any of this - proves no promotion happened.
+    expect(getTrustTier(fallbackNear)).toBe('fallback')
+  })
+})
+
+describe('filterByPreferredAreas (Phase 3H, Discovery Mode B)', () => {
+  const MENS_A = 'mens-hostel-a'
+  const LADIES_A = 'ladies-hostel-a'
+  const preferredAreaOrder = (overrides: Partial<LocationFilterableOrder> & { id: string }): LocationFilterableOrder => ({
+    pickup_point_id: null,
+    delivery_point_id: null,
+    ...overrides,
+  })
+
+  it('returns every order unfiltered when no areas are preferred', () => {
+    const orders = [preferredAreaOrder({ id: 'a' }), preferredAreaOrder({ id: 'b', delivery_point_id: MENS_A })]
+    expect(filterByPreferredAreas(orders, new Set()).map((o) => o.id).sort()).toEqual(['a', 'b'])
+  })
+
+  it('matches on pickup point', () => {
+    const order = preferredAreaOrder({ id: 'pickup-match', pickup_point_id: MENS_A })
+    expect(filterByPreferredAreas([order], new Set([MENS_A])).map((o) => o.id)).toEqual(['pickup-match'])
+  })
+
+  it('matches on delivery point', () => {
+    const order = preferredAreaOrder({ id: 'delivery-match', delivery_point_id: MENS_A })
+    expect(filterByPreferredAreas([order], new Set([MENS_A])).map((o) => o.id)).toEqual(['delivery-match'])
+  })
+
+  it('never matches Ladies Hostel A when only Men\'s Hostel A is preferred - the two stay physically distinct', () => {
+    const ladiesOrder = preferredAreaOrder({ id: 'ladies', delivery_point_id: LADIES_A })
+    expect(filterByPreferredAreas([ladiesOrder], new Set([MENS_A]))).toEqual([])
+  })
+
+  it('an order with neither point set never matches a non-empty preferred set', () => {
+    const legacy = preferredAreaOrder({ id: 'legacy' })
+    expect(filterByPreferredAreas([legacy], new Set([MENS_A]))).toEqual([])
   })
 })

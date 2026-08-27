@@ -13,6 +13,7 @@ export type QueryBuilder = {
   select: (...args: unknown[]) => QueryBuilder
   insert: (...args: unknown[]) => QueryBuilder
   update: (...args: unknown[]) => QueryBuilder
+  upsert: (...args: unknown[]) => QueryBuilder
   delete: (...args: unknown[]) => QueryBuilder
   eq: (...args: unknown[]) => QueryBuilder
   neq: (...args: unknown[]) => QueryBuilder
@@ -24,6 +25,7 @@ export type QueryBuilder = {
   limit: (...args: unknown[]) => QueryBuilder
   order: (...args: unknown[]) => QueryBuilder
   single: () => Promise<MockResult>
+  maybeSingle: () => Promise<MockResult>
 } & PromiseLike<MockResult>
 
 export function createQueryBuilder(result: MockResult): QueryBuilder {
@@ -31,6 +33,7 @@ export function createQueryBuilder(result: MockResult): QueryBuilder {
     select: vi.fn(() => builder),
     insert: vi.fn(() => builder),
     update: vi.fn(() => builder),
+    upsert: vi.fn(() => builder),
     delete: vi.fn(() => builder),
     eq: vi.fn(() => builder),
     neq: vi.fn(() => builder),
@@ -42,6 +45,7 @@ export function createQueryBuilder(result: MockResult): QueryBuilder {
     limit: vi.fn(() => builder),
     order: vi.fn(() => builder),
     single: vi.fn(() => Promise.resolve(result)),
+    maybeSingle: vi.fn(() => Promise.resolve(result)),
     then: (onFulfilled, onRejected) => Promise.resolve(result).then(onFulfilled, onRejected),
   }
   return builder

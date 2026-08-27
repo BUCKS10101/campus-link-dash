@@ -15,6 +15,8 @@ import {
 } from '@/components/ui/dialog'
 import { useAuth } from '@/hooks/useAuth'
 import { useToast } from '@/hooks/use-toast'
+import { usePreferences } from '@/hooks/usePreferences'
+import { DiscoverySettings } from '@/components/settings/DiscoverySettings'
 import { getErrorMessage } from '@/lib/utils'
 import { ChangePasswordSchema } from '@/lib/validation'
 import { Text } from '@/components/primitives'
@@ -169,8 +171,20 @@ const Settings = () => {
   const { user, signOut } = useAuth()
   const { theme, setTheme } = useTheme()
   const { toast } = useToast()
+  // Phase 3H — shared PreferencesProvider (App.tsx), the same live state
+  // Home reads - see PHASE3_3H_PREFERENCES_PERSONALIZATION_SPEC.md §14.
+  const { preferences, preferredPointIds, savePreferences, savePreferredPoints, resetPreferences } = usePreferences()
 
   const email = user?.profile?.email || user?.user.email || ''
+
+  const handleTogglePreference = async (key: 'discoverable' | 'use_friends_in_recommendations' | 'notify_chat_messages' | 'notify_friend_events', checked: boolean) => {
+    if (!user) return
+    try {
+      await savePreferences(user.user.id, { [key]: checked })
+    } catch (error) {
+      toast({ title: 'Could not save', description: getErrorMessage(error, 'Please try again.'), variant: 'destructive' })
+    }
+  }
 
   const handleSignOut = async () => {
     try {
@@ -208,13 +222,81 @@ const Settings = () => {
         />
       </div>
 
+      {user && preferences && (
+        <div className="mt-12">
+          <Text variant="label" tone="faint" as="div" className="pb-3">Discovery</Text>
+          <DiscoverySettings
+            userId={user.user.id}
+            preferences={preferences}
+            preferredPointIds={preferredPointIds}
+            savePreferences={savePreferences}
+            savePreferredPoints={savePreferredPoints}
+            resetPreferences={resetPreferences}
+          />
+        </div>
+      )}
+
       <div className="mt-12">
         <Text variant="label" tone="faint" as="div" className="pb-3">Privacy</Text>
         <SettingsRow
           title="Live location while delivering"
           description="Only shared with the requester of an order you're actively delivering, only while it's picked up or out for delivery, and never stored - it stops the moment the order is delivered or cancelled."
         />
+        {preferences && (
+          <>
+            <SettingsRow
+              title="Let other students find me by name"
+              description="Turning this off only affects future searches - it doesn't hide you from existing friends or anyone you already have an order with."
+              action={
+                <Switch
+                  checked={preferences.discoverable}
+                  onCheckedChange={(checked) => handleTogglePreference('discoverable', checked)}
+                  aria-label="Let other students find me by name"
+                />
+              }
+            />
+            <SettingsRow
+              title="Use my friendships to personalize Recommended"
+              description="When off, friends' errands are ranked the same as anyone else's in your Recommended tab."
+              action={
+                <Switch
+                  checked={preferences.use_friends_in_recommendations}
+                  onCheckedChange={(checked) => handleTogglePreference('use_friends_in_recommendations', checked)}
+                  aria-label="Use my friendships to personalize Recommended"
+                />
+              }
+            />
+          </>
+        )}
       </div>
+
+      {preferences && (
+        <div className="mt-12">
+          <Text variant="label" tone="faint" as="div" className="pb-3">Notifications</Text>
+          <SettingsRow
+            title="Chat messages"
+            description="A ping when someone messages you about an order."
+            action={
+              <Switch
+                checked={preferences.notify_chat_messages}
+                onCheckedChange={(checked) => handleTogglePreference('notify_chat_messages', checked)}
+                aria-label="Notify me about chat messages"
+              />
+            }
+          />
+          <SettingsRow
+            title="Friend requests"
+            description="A ping when someone sends or accepts a friend request."
+            action={
+              <Switch
+                checked={preferences.notify_friend_events}
+                onCheckedChange={(checked) => handleTogglePreference('notify_friend_events', checked)}
+                aria-label="Notify me about friend requests"
+              />
+            }
+          />
+        </div>
+      )}
 
       <div className="mt-12">
         <Text variant="label" tone="faint" as="div" className="pb-3">Appearance</Text>

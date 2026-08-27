@@ -12,6 +12,7 @@ import { ActivityRedirect } from "@/components/ActivityRedirect";
 import { LoadingRegion } from "@/components/primitives";
 import { AuthProvider } from "@/hooks/useAuth";
 import { NotificationsProvider } from "@/hooks/useNotifications";
+import { PreferencesProvider } from "@/hooks/usePreferences";
 
 // Login stays eager: it is the cold-start destination for every signed-out
 // visitor (ProtectedRoute redirects there), so lazy-loading it would cost
@@ -48,6 +49,12 @@ const App = () => (
                 subscribes/fetches while a user is signed in (see
                 useNotifications.tsx). */}
             <NotificationsProvider>
+            {/* Same reasoning as NotificationsProvider above - Settings and
+                Home (and any future consumer) must share one live copy of
+                the user's preferences, not each fetch and hold their own,
+                so a change made on one page is visible on the other
+                immediately, not only after a remount. */}
+            <PreferencesProvider>
               <Suspense fallback={<LoadingRegion label="Loading CampusLink" />}>
                 <Routes>
                   <Route path="/login" element={<Login />} />
@@ -82,6 +89,7 @@ const App = () => (
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Suspense>
+            </PreferencesProvider>
             </NotificationsProvider>
             </AuthProvider>
           </BrowserRouter>

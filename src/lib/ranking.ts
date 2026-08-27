@@ -255,3 +255,80 @@ export const filterByLocation = <T extends LocationFilterableOrder>(
   orders: readonly T[],
   filter: LocationFilter,
 ): T[] => (isLocationFilterActive(filter) ? orders.filter((o) => matchesLocationFilter(o, filter)) : orders.slice())
+
+/**
+ * Phase 3H — discovery personalization (two modes, never both at once -
+ * see PHASE3_3H_PREFERENCES_PERSONALIZATION_SPEC.md §3/§8). Both filters
+ * below sit in the exact same pipeline position as filterByLocation
+ * above: applied once, upstream of every tab's own ranking, over the
+ * already-fetched board - never a separate query, never touching tier/
+ * reward computation.
+ */
+
+export interface GeoPoint {
+  lat: number
+  lng: number
+}
+
+/**
+ * Haversine (straight-line/"as the crow flies"), never a routed distance
+ * - the live device coordinate is never sent to the server, so there is
+ * no routed number to compute here. Kept deliberately separate from
+ * `distance_km` (3A's routed/fallback trip length) - the two must never
+ * be blended into one figure or one trust decision (spec §3.1).
+ */
+export const haversineDistanceKm = (a: GeoPoint, b: GeoPoint): number => {
+  const EARTH_RADIUS_KM = 6371
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(b.lat - a.lat)
+  const dLng = toRad(b.lng - a.lng)
+  const sinLat = Math.sin(dLat / 2)
+  const sinLng = Math.sin(dLng / 2)
+  const h = sinLat * sinLat + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * sinLng * sinLng
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(h)))
+}
+
+export interface ProximityFilterableOrder {
+  id: string
+  pickup_point_id: string | null
+}
+
+/**
+ * Discovery Mode A. `pickupPointById` resolves an order's pickup point to
+ * a coordinate via the already-fetched campus-points list (no new fetch,
+ * no MapLibre). An order whose pickup point doesn't resolve to a real
+ * coordinate is never excluded - same "never hide what can't be honestly
+ * measured" rule 3B already applies to routed-distance filtering,
+ * extended here to the proximity signal. This never reads
+ * distance_km/distance_source and never affects trust tier - it only
+ * ever decides in/out of the candidate set (spec §9).
+ */
+export const filterByProximity = <T extends ProximityFilterableOrder>(
+  orders: readonly T[],
+  viewerPosition: GeoPoint,
+  radiusKm: number,
+  pickupPointById: ReadonlyMap<string, GeoPoint>,
+): T[] =>
+  orders.filter((o) => {
+    if (!o.pickup_point_id) return true
+    const point = pickupPointById.get(o.pickup_point_id)
+    if (!point) return true
+    return haversineDistanceKm(viewerPosition, point) <= radiusKm
+  })
+
+/**
+ * Discovery Mode B (fallback) - pure membership, no distance component.
+ * Matches on pickup OR delivery point, same "null never matches" rule
+ * matchesLocationFilter already encodes for the manual Where filter.
+ */
+export const filterByPreferredAreas = <T extends LocationFilterableOrder>(
+  orders: readonly T[],
+  preferredPointIds: ReadonlySet<string>,
+): T[] => {
+  if (preferredPointIds.size === 0) return orders.slice()
+  return orders.filter(
+    (o) =>
+      (o.pickup_point_id != null && preferredPointIds.has(o.pickup_point_id)) ||
+      (o.delivery_point_id != null && preferredPointIds.has(o.delivery_point_id)),
+  )
+}
