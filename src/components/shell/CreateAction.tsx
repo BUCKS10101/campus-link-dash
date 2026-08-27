@@ -11,9 +11,10 @@ export interface CreateActionProps {
 }
 
 /**
- * The product's central action — a slip, not a rounded FAB. Square-ish
- * corners, flat wine fill, no glow: it reads as a physical chit you'd
- * pin to a board, matching the OTP token later in the flow.
+ * The product's central action, in the same pill/organic language as
+ * every other button in the app (see button.tsx) — a continuous system,
+ * not a differently-shaped exception just because this one sits in the
+ * nav.
  */
 export function CreateAction({ href, variant, active = false }: CreateActionProps) {
   if (variant === "desktop") {
@@ -21,7 +22,7 @@ export function CreateAction({ href, variant, active = false }: CreateActionProp
       <Link
         to={href}
         className={cn(
-          "inline-flex items-center gap-1.5 rounded-sm bg-primary px-4 py-2",
+          "inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2",
           "font-body text-body-sm font-semibold text-primary-foreground",
           "transition-colors duration-fast ease-out hover:bg-primary/90",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -42,7 +43,7 @@ export function CreateAction({ href, variant, active = false }: CreateActionProp
     >
       <span
         className={cn(
-          "-mt-6 flex size-12 items-center justify-center rounded-sm",
+          "-mt-6 flex size-12 items-center justify-center rounded-full",
           "bg-primary text-primary-foreground shadow-elevated",
           "ring-4 ring-background",
           "transition-transform duration-fast ease-out active:scale-95",
