@@ -137,7 +137,7 @@ export function ChatThread({ orderId, currentUserId, counterpartName, contextLin
                   // every re-render of the thread (e.g. composer keystrokes).
                   className={cn(
                     'animate-rise-in max-w-[85%] px-3.5 py-2.5',
-                    mine ? 'rounded-sm bg-primary-soft' : 'border-l-2 border-border pl-3.5',
+                    mine ? 'rounded-md bg-primary-soft' : 'border-l-2 border-border pl-3.5',
                   )}
                 >
                   <Text variant="body">{msg.message}</Text>

@@ -376,7 +376,7 @@ const Home = () => {
             </Text>
             <Link
               to="/post-request"
-              className="inline-flex items-center gap-1.5 rounded-sm bg-primary px-4 py-2 font-body text-body-sm font-semibold text-primary-foreground transition-colors duration-fast ease-out hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 font-body text-body-sm font-semibold text-primary-foreground transition-colors duration-fast ease-out hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               Post a request
             </Link>
@@ -451,7 +451,7 @@ const Home = () => {
             <Text variant="bodySm" tone="faint">That's everything on the board right now.</Text>
             <Link
               to="/post-request"
-              className="inline-flex items-center gap-1.5 rounded-sm border border-border px-4 py-2 font-body text-body-sm font-semibold text-foreground transition-colors duration-fast ease-out hover:border-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border px-4 py-2 font-body text-body-sm font-semibold text-foreground transition-colors duration-fast ease-out hover:border-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               Post your own request
             </Link>

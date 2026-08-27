@@ -64,7 +64,7 @@ const ToggleButton = ({ selected, onClick, children, className }: { selected: bo
     onClick={onClick}
     aria-pressed={selected}
     className={cn(
-      'rounded-sm border px-4 py-2.5 font-body text-body-sm font-semibold transition-colors duration-fast ease-out',
+      'rounded-full border px-4 py-2.5 font-body text-body-sm font-semibold transition-colors duration-fast ease-out',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
       selected ? 'border-foreground bg-foreground text-background' : 'border-border text-muted-foreground hover:border-foreground hover:text-foreground',
       className,

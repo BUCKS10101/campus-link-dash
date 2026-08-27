@@ -25,7 +25,7 @@ export function StarInput({ value, onChange, disabled }: StarInputProps) {
           disabled={disabled}
           onClick={() => onChange(n)}
           className={cn(
-            'rounded-sm p-1.5 transition-colors duration-fast ease-out',
+            'rounded-full p-1.5 transition-colors duration-fast ease-out',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
             'disabled:pointer-events-none disabled:opacity-60',
           )}
