@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { Profile } from '@/lib/database-types'
-import { SignupSchema, LoginSchema, ProfileUpdateSchema, validateOrThrow } from '@/lib/validation'
+import { SignupSchema, LoginSchema, ProfileUpdateSchema, ChangePasswordSchema, validateOrThrow } from '@/lib/validation'
 
 export interface AuthUser {
   user: User
@@ -16,6 +16,7 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<unknown>
   signOut: () => Promise<void>
   updateProfile: (updates: Partial<Profile>) => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string, confirmPassword: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -174,8 +175,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser({ user: user.user, profile })
   }
 
+  // Requires re-proving the current password (via a real sign-in call,
+  // not a client-side comparison against anything cached) before issuing
+  // the update - Supabase's updateUser() would otherwise accept a new
+  // password from anyone holding an already-open session, with no check
+  // that they actually know the old one.
+  const changePassword = async (currentPassword: string, newPassword: string, confirmPassword: string) => {
+    if (!user?.user.email) throw new Error('No user logged in')
+
+    const validated = validateOrThrow(ChangePasswordSchema, { currentPassword, newPassword, confirmPassword })
+
+    const { error: reauthError } = await supabase.auth.signInWithPassword({
+      email: user.user.email,
+      password: validated.currentPassword,
+    })
+    if (reauthError) throw new Error('Current password is incorrect.')
+
+    const { error } = await supabase.auth.updateUser({ password: validated.newPassword })
+    if (error) throw error
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut, updateProfile }}>
+    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut, updateProfile, changePassword }}>
       {children}
     </AuthContext.Provider>
   )

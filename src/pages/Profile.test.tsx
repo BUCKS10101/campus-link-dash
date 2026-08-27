@@ -14,12 +14,6 @@ vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => mockUseAuth(),
 }))
 
-const mockSetTheme = vi.fn()
-const mockUseTheme = vi.fn()
-vi.mock('next-themes', () => ({
-  useTheme: () => mockUseTheme(),
-}))
-
 const mockGetProfileReputation = vi.fn()
 vi.mock('@/hooks/useRatings', () => ({
   useRatings: () => ({ getProfileReputation: mockGetProfileReputation }),
@@ -52,7 +46,6 @@ const renderProfile = () => render(<MemoryRouter><Profile /></MemoryRouter>)
 beforeEach(() => {
   vi.clearAllMocks()
   mockUseAuth.mockReturnValue({ user: AUTH_USER, loading: false, updateProfile: mockUpdateProfile })
-  mockUseTheme.mockReturnValue({ theme: 'light', setTheme: mockSetTheme })
   mockGetProfileReputation.mockResolvedValue({ avg_rating: null, rating_count: 0, completed_deliveries: 0 })
   mockFetchMyFriendships.mockResolvedValue({ friends: [], received: [], sent: [] })
 })
@@ -114,11 +107,9 @@ describe('Profile', () => {
     })
   })
 
-  it('shows no fake settings - only the real, wired dark mode toggle', () => {
+  it('links into Settings instead of duplicating account controls here', () => {
     renderProfile()
-    expect(screen.queryByText(/notification/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/privacy/i)).not.toBeInTheDocument()
-    expect(screen.getByRole('switch', { name: /toggle dark mode/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /open settings/i })).toHaveAttribute('href', '/settings')
   })
 
   it('links into Activity instead of duplicating order management here', () => {
@@ -140,14 +131,6 @@ describe('Profile', () => {
       await waitFor(() => expect(label.parentElement).toHaveTextContent('3'))
       expect(mockFetchMyFriendships).toHaveBeenCalledWith('user-1')
     })
-  })
-
-  it('toggles dark mode via the real theme system', async () => {
-    const user = userEvent.setup()
-    renderProfile()
-
-    await user.click(screen.getByRole('switch', { name: /toggle dark mode/i }))
-    expect(mockSetTheme).toHaveBeenCalledWith('dark')
   })
 
   describe('editing', () => {
