@@ -6,14 +6,15 @@ import { NavItem } from "./NavItem";
 import { CreateAction } from "./CreateAction";
 import { AccountMenu } from "./AccountMenu";
 import { PageContainer } from "./PageContainer";
+import { BrandMark } from "./BrandMark";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 /**
  * Desktop masthead — a publication's header, not a SaaS navbar. A single
- * ink rule underneath, the wordmark set in the display serif, navigation
- * as plain text. No search — the previous build's search was dead
- * (unbound state). The notification bell (Phase 3C) is real: it's backed
- * by an actual notifications model, not the old static dot.
+ * ink rule underneath, the relay-dot mark + wordmark, navigation as plain
+ * text. No search — the previous build's search was dead (unbound state).
+ * The notification bell (Phase 3C) is real: it's backed by an actual
+ * notifications model, not the old static dot.
  */
 export function DesktopNav() {
   const location = useLocation();
@@ -55,9 +56,10 @@ export function DesktopNav() {
       <PageContainer className="flex h-[68px] items-center gap-9">
         <Link
           to="/"
-          className="shrink-0 font-display text-[26px] leading-none text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="flex shrink-0 items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          CampusLink
+          <BrandMark size={26} />
+          <span className="font-display text-[26px] leading-none text-foreground">CampusLink</span>
         </Link>
 
         <nav ref={navRef} aria-label="Primary" className="relative flex items-center gap-7">
