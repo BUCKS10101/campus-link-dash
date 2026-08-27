@@ -117,14 +117,15 @@ export default {
         heading: "var(--font-display)",
       },
 
-      // The Counter type scale. Display leans on the serif's italic for
-      // emphasis; data sizes are tuned for the OTP/tip/distance numerals.
+      // The type scale. Fredoka (display/heading) is a rounded sans, so
+      // headings lean on weight for emphasis rather than tight negative
+      // tracking; data sizes are tuned for the OTP/tip/distance numerals.
       fontSize: {
-        display: ["3.25rem", { lineHeight: "0.95", letterSpacing: "-0.02em" }],
-        "display-sm": ["2.25rem", { lineHeight: "1", letterSpacing: "-0.015em" }],
-        h1: ["1.875rem", { lineHeight: "1.05", letterSpacing: "-0.015em" }],
-        h2: ["1.5rem", { lineHeight: "1.1" }],
-        h3: ["1.0625rem", { lineHeight: "1.3", letterSpacing: "-0.005em" }],
+        display: ["3.25rem", { lineHeight: "0.98", letterSpacing: "-0.01em" }],
+        "display-sm": ["2.25rem", { lineHeight: "1.02", letterSpacing: "-0.005em" }],
+        h1: ["1.875rem", { lineHeight: "1.08", letterSpacing: "-0.005em" }],
+        h2: ["1.5rem", { lineHeight: "1.15" }],
+        h3: ["1.0625rem", { lineHeight: "1.3" }],
         body: ["1rem", { lineHeight: "1.62" }],
         "body-sm": ["0.875rem", { lineHeight: "1.55" }],
         caption: ["0.8125rem", { lineHeight: "1.4" }],

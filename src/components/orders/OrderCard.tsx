@@ -29,7 +29,7 @@ interface OrderCardProps {
 const OrderCard: React.FC<OrderCardProps> = ({ order, onAccept, accepting = false, featured = false }) => {
   if (featured) {
     return (
-      <div className="flex flex-col gap-6 py-2 sm:flex-row sm:items-end sm:justify-between sm:gap-8">
+      <div className="flex flex-col gap-6 rounded-xl bg-surface px-7 py-7 sm:flex-row sm:items-center sm:justify-between sm:gap-8 sm:px-8 sm:py-8">
         <div className="min-w-0">
           <Text variant="dataLg" tone="signalDeep" className="block tabular-nums">
             ₹{order.tip}
@@ -49,7 +49,7 @@ const OrderCard: React.FC<OrderCardProps> = ({ order, onAccept, accepting = fals
           onClick={() => onAccept(order.id)}
           loading={accepting}
           size="lg"
-          className="w-full shrink-0 rounded-sm sm:w-auto"
+          className="w-full shrink-0 sm:w-auto"
         >
           Take this run
         </Button>
@@ -79,7 +79,6 @@ const OrderCard: React.FC<OrderCardProps> = ({ order, onAccept, accepting = fals
         onClick={() => onAccept(order.id)}
         loading={accepting}
         size="sm"
-        className="rounded-sm"
       >
         Take
       </Button>

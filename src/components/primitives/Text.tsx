@@ -5,13 +5,13 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /**
- * The single typographic entry point for the Counter system.
+ * The single typographic entry point for the app's type system.
  *
- * Instrument Serif ships regular + italic only — no bold face. Faking
- * bold on it looks bad (browser-synthesized), so every serif variant
- * stays font-normal; emphasis within serif text comes from `italic`
- * (see `accent`), never weight. Section labels and UI headings (h3 and
- * below) use the sans face instead, where real weights exist.
+ * Fredoka (the display/heading face) carries real weights, so emphasis
+ * comes from weight, not a synthesized italic - `accent` bumps the
+ * variant up to semibold rather than italicizing. Headings (h1-h3) all
+ * share the same rounded display face now, at weights tuned per size so
+ * smaller headings stay legible without looking thin.
  *
  * `variant` picks the style; `as` picks the element, so semantics and
  * appearance stay independent (a visual h2 can be a real <h1>).
@@ -19,11 +19,11 @@ import { cn } from "@/lib/utils";
 const textVariants = cva("", {
   variants: {
     variant: {
-      display: "font-display text-display font-normal text-balance",
-      displaySm: "font-display text-display-sm font-normal text-balance",
-      h1: "font-display text-h1 font-normal text-balance",
-      h2: "font-display text-h2 font-normal text-balance",
-      h3: "font-body text-h3 font-bold",
+      display: "font-display text-display font-medium text-balance",
+      displaySm: "font-display text-display-sm font-medium text-balance",
+      h1: "font-display text-h1 font-medium text-balance",
+      h2: "font-display text-h2 font-medium text-balance",
+      h3: "font-display text-h3 font-semibold",
       body: "font-body text-body",
       bodySm: "font-body text-body-sm",
       caption: "font-body text-caption",
@@ -47,9 +47,10 @@ const textVariants = cva("", {
       danger: "text-destructive",
       inherit: "",
     },
-    /** Italic is how serif text carries emphasis — never weight. */
+    /** Fredoka has no distinct italic personality worth using - emphasis
+     *  bumps weight up to semibold instead. */
     accent: {
-      true: "italic",
+      true: "font-semibold",
       false: "",
     },
   },

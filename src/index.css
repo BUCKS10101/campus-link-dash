@@ -3,23 +3,16 @@
 @tailwind utilities;
 
 /* ============================================================
-   CampusLink — "Counter" design system
+   CampusLink design system
    ------------------------------------------------------------
-   A board of postings, set as type. The organising metaphor is the
-   canteen notice board / mess token / classified page, not a SaaS
-   dashboard. Type carries hierarchy; hairline rules separate content
-   instead of card borders.
-
-   Palette (forest/ivory, tuned): forest and ivory are the dominant
-   atmosphere/environment, cream is the surface tone, sage carries
-   secondary structure, and berry/wine is a RARE signal reserved for
-   reward figures and small active-state indicators — it is explicitly
-   NOT the default button colour. Primary buttons are forest-on-ivory
-   (light theme) / ivory-on-forest (dark theme, since the page ground
-   itself flips), never berry. Hex references: Forest #294238, Deep
-   Forest #1B2B24, Ivory #F4EFE6, Cream #ECE3D3, Sage #A7B5AA,
-   Ink #18221F, Berry #8F405E — tuned slightly from those literal
-   values for WCAG contrast and to keep existing token roles intact.
+   Plum + gold on warm cream — an editorial, tactile campus-notice-board
+   feel: type carries hierarchy, hairline rules separate content, and
+   colour is used deliberately rather than decoratively. Plum is the
+   dominant signal (buttons, reward figures, the one dark hero panel);
+   gold is a rare secondary accent; every other surface stays a warm
+   neutral. Hex references: Background #FAF3EE, Surface #F3E4DE,
+   Text #2B1A24, Plum 100–900 (#FAEEF2…#28131F), Gold 100–900
+   (#FDF3DF…#2C210A), Neutral 100–900 (#F8F1EE…#2B1A24).
 
    Single source of truth for every design token in the app. Nothing
    outside this file should declare a raw colour, shadow, radius,
@@ -32,13 +25,13 @@
 @layer base {
   :root {
     /* ---------- Ground ---------- */
-    --background: 39 39% 93%;         /* ivory */
-    --foreground: 162 17% 11%;        /* ink */
+    --background: 25 55% 96%;         /* warm cream */
+    --foreground: 325 25% 14%;        /* near-black plum ink */
 
-    --surface: 42 42% 96%;            /* raised — a touch lighter than ivory */
-    --surface-foreground: 162 17% 11%;
-    --surface-sunken: 38 40% 88%;     /* cream — a visibly deeper surface */
-    --surface-elevated: 42 42% 96%;   /* popovers, sheets */
+    --surface: 17 47% 91%;            /* raised panel — a touch deeper than the ground */
+    --surface-foreground: 325 25% 14%;
+    --surface-sunken: 19 30% 89%;     /* filter rows, sunken chrome */
+    --surface-elevated: 18 42% 95%;   /* popovers, sheets */
 
     /* shadcn compatibility aliases */
     --card: var(--surface);
@@ -46,28 +39,25 @@
     --popover: var(--surface-elevated);
     --popover-foreground: var(--surface-foreground);
 
-    /* ---------- Primary action — forest button, ivory text. NOT berry;
-       berry is reserved for --primary-deep, the rare signal below. On
-       this light/ivory ground the button is the deep-forest surface (the
-       same hue as the dark theme's own background, reused here) so it
-       never reads as a white-on-white button; the pairing flips in .dark
-       below since the page ground itself flips. ---------- */
-    --primary: 154 25% 16%;           /* deep forest */
-    --primary-foreground: 39 39% 93%; /* warm ivory */
-    --primary-soft: 156 20% 90%;      /* soft forest tint — in-progress badges, chat's "mine" bubble */
-    --primary-deep: 337 38% 41%;      /* berry — reward/tip figures, small active signals */
+    /* ---------- Primary action — plum button, cream text. This is the
+       one dominant signal colour: buttons, reward/tip figures, active
+       filter chips, the dark hero stat panel. ---------- */
+    --primary: 327 35% 35%;           /* plum */
+    --primary-foreground: 25 55% 96%; /* warm cream */
+    --primary-soft: 340 55% 96%;      /* soft plum tint — in-progress badges, chat's "mine" bubble */
+    --primary-deep: 326 36% 26%;      /* deeper plum — hover states, the dark hero panel */
 
     /* ---------- Secondary accents ---------- */
-    --secondary: 38 40% 88%;          /* cream */
-    --secondary-foreground: 162 17% 11%;
+    --secondary: 19 30% 89%;          /* warm neutral */
+    --secondary-foreground: 325 25% 14%;
 
-    --accent: 156 20% 35%;            /* companion — lighter forest, secondary emphasis */
-    --accent-foreground: 39 39% 96%;
-    --accent-soft: 133 12% 90%;
+    --accent: 40 61% 47%;             /* gold — rare secondary emphasis, never the default action colour */
+    --accent-foreground: 41 63% 11%;
+    --accent-soft: 40 88% 93%;
 
-    --info: 133 9% 45%;               /* sage — calmer counter-tone / info */
+    --info: 18 10% 45%;               /* warm neutral-gray / info */
     --info-foreground: 0 0% 100%;
-    --info-soft: 133 12% 90%;
+    --info-soft: 19 30% 89%;
 
     /* ---------- Status (kept distinct from the signal/companion accents) ---------- */
     --success: 145 32% 30%;
@@ -83,40 +73,42 @@
     --destructive-soft: 17 45% 89%;
 
     /* ---------- Text ---------- */
-    --text-muted: 162 12% 32%;
-    --text-faint: 133 8% 52%;
-    --muted: 38 40% 88%;
+    --text-muted: 18 11% 34%;
+    --text-faint: 19 12% 58%;
+    --muted: 19 30% 89%;
     --muted-foreground: var(--text-muted);
 
     /* ---------- Lines — the primary structural device ---------- */
-    --border: 38 25% 82%;             /* rule — cream-toned */
-    --divider: 38 25% 82%;
-    --border-strong: 38 18% 70%;
-    --input: 38 18% 70%;
+    --border: 20 21% 81%;             /* rule — warm neutral */
+    --divider: 20 21% 81%;
+    --border-strong: 19 16% 70%;
+    --input: 19 16% 70%;
     --ring: var(--primary);
 
     /* ---------- Disabled ---------- */
-    --disabled-surface: 38 40% 88%;
-    --disabled-foreground: 133 8% 52%;
+    --disabled-surface: 19 30% 89%;
+    --disabled-foreground: 19 12% 58%;
 
-    /* ---------- Elevation — used sparingly; Counter separates with rules,
-       not shadows. Reserved for things that must sit ABOVE the page:
-       sheets, dialogs, the floating Create action. ---------- */
-    --elevation-subtle: 0 1px 2px hsl(162 17% 11% / 0.05);
-    --elevation-default: 0 2px 8px hsl(162 17% 11% / 0.08);
-    --elevation-elevated: 0 8px 24px hsl(162 17% 11% / 0.12);
-    --elevation-floating: 0 16px 40px hsl(162 17% 11% / 0.18);
+    /* ---------- Elevation — used sparingly. Reserved for things that
+       must sit ABOVE the page: sheets, dialogs, the floating Create
+       action. Shadows carry a touch of the plum ink rather than pure
+       black, so they stay warm instead of muddy. ---------- */
+    --elevation-subtle: 0 1px 2px hsl(325 25% 14% / 0.06);
+    --elevation-default: 0 2px 8px hsl(325 25% 14% / 0.09);
+    --elevation-elevated: 0 8px 24px hsl(325 25% 14% / 0.13);
+    --elevation-floating: 0 16px 40px hsl(325 25% 14% / 0.2);
 
-    /* ---------- Shape — mostly square. A card must earn a radius. ---------- */
-    --radius-sm: 3px;
-    --radius-md: 5px;
-    --radius-lg: 8px;
-    --radius-xl: 14px;
+    /* ---------- Shape — generously rounded, tactile. Pill-shaped
+       controls (chips, buttons, inputs) and softly rounded panels. ---------- */
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 22px;
+    --radius-xl: 32px;
     --radius-full: 9999px;
     --radius: var(--radius-md);
 
     /* ---------- Typography ---------- */
-    --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+    --font-display: "Fredoka", "Helvetica Rounded", ui-rounded, system-ui, sans-serif;
     --font-body: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --font-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     --font-heading: var(--font-display); /* legacy alias */
@@ -125,8 +117,7 @@
     --layout-max: 1120px;
     --measure: 66ch;                  /* running-text reading column */
 
-    /* ---------- Motion — paper physics: things slide, stack, settle.
-       Nothing bounces or glows. ---------- */
+    /* ---------- Motion — quick, physical, non-blocking. ---------- */
     --duration-instant: 80ms;
     --duration-fast: 160ms;
     --duration-base: 240ms;
@@ -151,38 +142,37 @@
   }
 
   /* ============================================================
-     Dark theme — not an inversion, and not black+neon. Ground drops
-     to Deep Forest (#1B2B24), visibly green rather than near-black;
-     text lifts to ivory. Primary buttons flip to warm-ivory-on-forest
-     here (the page itself is already forest, so the button needs to be
-     the light element) - the same semantic pairing as light mode, just
-     inverted because the ground inverted. Berry/wine lifts in
-     lightness only, staying the same hue family.
+     Dark theme — not an inversion, and not black+neon. Ground drops to
+     a deep plum-black, visibly warm rather than near-black; text lifts
+     to cream. Primary buttons flip to cream-on-plum here (the page
+     itself is already dark plum, so the button needs to be the light
+     element) - the same semantic pairing as light mode, just inverted
+     because the ground inverted.
      ============================================================ */
   .dark {
-    --background: 154 23% 14%;
-    --foreground: 39 35% 92%;
+    --background: 325 30% 10%;
+    --foreground: 25 40% 92%;
 
-    --surface: 154 20% 17%;
-    --surface-foreground: 39 35% 92%;
-    --surface-sunken: 154 25% 10%;
-    --surface-elevated: 154 18% 20%;
+    --surface: 325 25% 14%;
+    --surface-foreground: 25 40% 92%;
+    --surface-sunken: 325 30% 8%;
+    --surface-elevated: 325 22% 17%;
 
-    --primary: 39 45% 95%;            /* warm ivory */
-    --primary-foreground: 154 25% 16%; /* deep forest ink */
-    --primary-soft: 154 20% 22%;      /* soft forest tint — in-progress badges, chat's "mine" bubble */
-    --primary-deep: 337 55% 68%;      /* berry — still the rare signal */
+    --primary: 25 55% 92%;            /* warm cream */
+    --primary-foreground: 327 35% 20%; /* dark plum ink */
+    --primary-soft: 325 25% 20%;
+    --primary-deep: 332 46% 70%;       /* lighter plum — still the same hue family */
 
-    --secondary: 154 20% 17%;
-    --secondary-foreground: 39 35% 92%;
+    --secondary: 325 25% 14%;
+    --secondary-foreground: 25 40% 92%;
 
-    --accent: 133 15% 62%;
-    --accent-foreground: 154 25% 10%;
-    --accent-soft: 133 15% 16%;
+    --accent: 41 65% 65%;
+    --accent-foreground: 41 63% 10%;
+    --accent-soft: 41 40% 16%;
 
-    --info: 133 12% 58%;
-    --info-foreground: 133 20% 10%;
-    --info-soft: 133 15% 14%;
+    --info: 19 12% 62%;
+    --info-foreground: 19 12% 10%;
+    --info-soft: 19 15% 16%;
 
     --success: 145 35% 55%;
     --success-foreground: 145 30% 8%;
@@ -196,22 +186,22 @@
     --destructive-foreground: 13 40% 9%;
     --destructive-soft: 13 30% 12%;
 
-    --text-muted: 39 18% 68%;
-    --text-faint: 133 8% 45%;
-    --muted: 154 20% 17%;
+    --text-muted: 25 20% 70%;
+    --text-faint: 19 10% 48%;
+    --muted: 325 25% 14%;
 
-    --border: 154 16% 20%;
-    --divider: 154 16% 20%;
-    --border-strong: 154 16% 26%;
-    --input: 154 16% 26%;
+    --border: 325 18% 20%;
+    --divider: 325 18% 20%;
+    --border-strong: 325 18% 26%;
+    --input: 325 18% 26%;
 
-    --disabled-surface: 154 18% 18%;
-    --disabled-foreground: 133 8% 45%;
+    --disabled-surface: 325 20% 16%;
+    --disabled-foreground: 19 10% 45%;
 
-    --elevation-subtle: 0 1px 2px hsl(0 0% 0% / 0.4);
-    --elevation-default: 0 2px 8px hsl(0 0% 0% / 0.45);
-    --elevation-elevated: 0 8px 24px hsl(0 0% 0% / 0.5);
-    --elevation-floating: 0 16px 40px hsl(0 0% 0% / 0.6);
+    --elevation-subtle: 0 1px 2px hsl(325 30% 4% / 0.4);
+    --elevation-default: 0 2px 8px hsl(325 30% 4% / 0.45);
+    --elevation-elevated: 0 8px 24px hsl(325 30% 4% / 0.5);
+    --elevation-floating: 0 16px 40px hsl(325 30% 4% / 0.6);
   }
 }
 
@@ -235,8 +225,8 @@
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
-    font-weight: 400;
-    letter-spacing: -0.015em;
+    font-weight: 500;
+    letter-spacing: -0.005em;
     text-wrap: balance;
   }
 

@@ -160,7 +160,7 @@ export const WhereFilter = ({ points, value, onApply, onClear, summary }: WhereF
       variant="outline"
       size="sm"
       className={cn(
-        'rounded-sm px-3 py-1.5 font-body text-body-sm font-medium',
+        'rounded-full px-4 py-2 font-body text-body-sm font-semibold',
         summary && 'border-foreground',
       )}
     >
