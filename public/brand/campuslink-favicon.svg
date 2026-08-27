@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CampusLink">
+  <!-- Rounded-square tile, optimized for 16-32px browser-tab display -
+       matches "System - Direction C" App icon / favicon cell exactly. -->
+  <rect width="64" height="64" rx="14" fill="#7a3b5e"/>
+  <circle cx="16" cy="32" r="9" fill="#faf3ee"/>
+  <circle cx="48" cy="32" r="9" fill="none" stroke="#c2902f" stroke-width="5"/>
+  <path d="M25 32 L 39 32" stroke="#faf3ee" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 7.5" opacity=".7"/>
+</svg>

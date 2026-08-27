@@ -1,0 +1,26 @@
+{
+  "name": "CampusLink",
+  "short_name": "CampusLink",
+  "description": "Post an errand, or pick up someone else's run - a student-to-student campus errand board.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf3ee",
+  "theme_color": "#7a3b5e",
+  "icons": [
+    {
+      "src": "/brand/campuslink-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/campuslink-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/brand/campuslink-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

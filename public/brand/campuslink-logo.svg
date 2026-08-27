@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 64" role="img" aria-label="CampusLink">
+  <!-- Primary lockup: relay-dot mark + wordmark, light-mode colors.
+       Supplementary brand asset (README, docs, static/OG contexts) - the
+       app header itself composes the mark image next to live text
+       instead, so the wordmark keeps the app's real Fredoka font-load
+       and stays selectable/accessible rather than baked into a path. -->
+  <circle cx="16" cy="32" r="9" fill="#3f1d31"/>
+  <circle cx="48" cy="32" r="9" fill="none" stroke="#c2902f" stroke-width="5"/>
+  <path d="M25 32 L 39 32" stroke="#3f1d31" stroke-width="4" stroke-linecap="round" stroke-dasharray="1 7.5"/>
+  <text x="74" y="32" dominant-baseline="central" font-family="Fredoka, 'Helvetica Rounded', ui-rounded, system-ui, sans-serif" font-size="32" font-weight="500" letter-spacing="-1" fill="#3f1d31">CampusLink</text>
+</svg>
