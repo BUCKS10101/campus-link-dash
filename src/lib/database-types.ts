@@ -226,6 +226,50 @@ export interface ProfileReputation {
   completed_deliveries: number
 }
 
+/**
+ * Phase 3I - see PHASE3_3I_ANALYTICS_INTELLIGENCE_SPEC.md. Nine plain
+ * numbers from get_my_activity_summary(), scoped to auth.uid() entirely
+ * server-side - never assembled from raw order rows client-side. Zero
+ * counts and null averages are the honest default for a brand-new user
+ * (never fabricated), not an error state.
+ */
+export interface MyActivitySummary {
+  posted_count: number
+  posted_delivered_count: number
+  posted_cancelled_count: number
+  accepted_count: number
+  completed_deliveries: number
+  deliveries_cancelled_count: number
+  avg_tip_given: number | null
+  avg_tip_earned: number | null
+}
+
+/** One day's order volume from get_campus_order_volume() - campus-wide,
+ * never scoped to or identifying any one user. */
+export interface CampusOrderVolumeDay {
+  day: string
+  total_orders: number
+  delivered_orders: number
+  cancelled_orders: number
+}
+
+/** One campus_points row's popularity from get_popular_locations() -
+ * a place and a count, never a requester/deliverer. */
+export interface PopularLocation {
+  campus_point_id: string
+  label: string
+  pickup_count: number
+  delivery_count: number
+  total_count: number
+}
+
+/** One hour-of-day's demand from get_busy_hours() - always all 24 hours,
+ * zero-filled, never a sparse/ambiguous result. */
+export interface BusyHour {
+  hour_of_day: number
+  order_count: number
+}
+
 export interface OrderWithProfiles extends Order {
   requester_profile: Profile
   deliverer_profile: Profile | null

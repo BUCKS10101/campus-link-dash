@@ -27,6 +27,7 @@ const OrderingHistory = lazy(() => import("./pages/activity/OrderingHistory"));
 const DeliveringActive = lazy(() => import("./pages/activity/DeliveringActive"));
 const DeliveringHistory = lazy(() => import("./pages/activity/DeliveringHistory"));
 const Profile = lazy(() => import("./pages/Profile"));
+const Insights = lazy(() => import("./pages/Insights"));
 const Friends = lazy(() => import("./pages/Friends"));
 const Settings = lazy(() => import("./pages/Settings"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -81,6 +82,7 @@ const App = () => (
                     <Route path="/activity/delivering" element={<DeliveringActive />} />
                     <Route path="/activity/delivering/history" element={<DeliveringHistory />} />
                     <Route path="/profile" element={<Profile />} />
+                    <Route path="/insights" element={<Insights />} />
                     <Route path="/friends" element={<Friends />} />
                     <Route path="/settings" element={<Settings />} />
                   </Route>

@@ -24,6 +24,11 @@ vi.mock('@/hooks/useFriends', () => ({
   useFriends: () => ({ fetchMyFriendships: mockFetchMyFriendships }),
 }))
 
+const mockGetMyActivitySummary = vi.fn()
+vi.mock('@/hooks/useAnalytics', () => ({
+  useAnalytics: () => ({ getMyActivitySummary: mockGetMyActivitySummary }),
+}))
+
 const { default: Profile } = await import('./Profile')
 
 const PROFILE = {
@@ -48,6 +53,11 @@ beforeEach(() => {
   mockUseAuth.mockReturnValue({ user: AUTH_USER, loading: false, updateProfile: mockUpdateProfile })
   mockGetProfileReputation.mockResolvedValue({ avg_rating: null, rating_count: 0, completed_deliveries: 0 })
   mockFetchMyFriendships.mockResolvedValue({ friends: [], received: [], sent: [] })
+  mockGetMyActivitySummary.mockResolvedValue({
+    posted_count: 0, posted_delivered_count: 0, posted_cancelled_count: 0,
+    accepted_count: 0, completed_deliveries: 0, deliveries_cancelled_count: 0,
+    avg_tip_given: null, avg_tip_earned: null,
+  })
 })
 
 describe('Profile', () => {
@@ -105,6 +115,57 @@ describe('Profile', () => {
 
       expect(await screen.findByText('5.0 · based on 1 rating')).toBeInTheDocument()
     })
+  })
+
+  describe('activity summary (Phase 3I)', () => {
+    it('does not show the activity section at all for a brand-new user with zero activity', async () => {
+      renderProfile()
+      await waitFor(() => expect(mockGetMyActivitySummary).toHaveBeenCalled())
+      expect(screen.queryByText('Your activity')).not.toBeInTheDocument()
+    })
+
+    it('shows real requester and deliverer counts once loaded', async () => {
+      mockGetMyActivitySummary.mockResolvedValue({
+        posted_count: 5, posted_delivered_count: 3, posted_cancelled_count: 1,
+        accepted_count: 4, completed_deliveries: 4, deliveries_cancelled_count: 0,
+        avg_tip_given: 22, avg_tip_earned: 18.5,
+      })
+      renderProfile()
+
+      expect(await screen.findByText('5 posted · 3 delivered · 1 cancelled')).toBeInTheDocument()
+      expect(screen.getByText('4 accepted · 4 delivered · 0 cancelled')).toBeInTheDocument()
+      expect(screen.getByText('₹22 average tip given')).toBeInTheDocument()
+      expect(screen.getByText('₹19 average tip earned')).toBeInTheDocument()
+    })
+
+    it('never fabricates an average tip when none exists', async () => {
+      mockGetMyActivitySummary.mockResolvedValue({
+        posted_count: 1, posted_delivered_count: 0, posted_cancelled_count: 1,
+        accepted_count: 0, completed_deliveries: 0, deliveries_cancelled_count: 0,
+        avg_tip_given: null, avg_tip_earned: null,
+      })
+      renderProfile()
+
+      await screen.findByText('1 posted · 0 delivered · 1 cancelled')
+      expect(screen.queryByText(/average tip/i)).not.toBeInTheDocument()
+    })
+
+    it('shows the section once the requester side has activity even with zero deliverer activity', async () => {
+      mockGetMyActivitySummary.mockResolvedValue({
+        posted_count: 2, posted_delivered_count: 1, posted_cancelled_count: 0,
+        accepted_count: 0, completed_deliveries: 0, deliveries_cancelled_count: 0,
+        avg_tip_given: 30, avg_tip_earned: null,
+      })
+      renderProfile()
+
+      expect(await screen.findByText('Your activity')).toBeInTheDocument()
+      expect(screen.getByText('0 accepted · 0 delivered · 0 cancelled')).toBeInTheDocument()
+    })
+  })
+
+  it('links into campus-wide Insights instead of embedding aggregate charts here', () => {
+    renderProfile()
+    expect(screen.getByRole('link', { name: /view insights/i })).toHaveAttribute('href', '/insights')
   })
 
   it('links into Settings instead of duplicating account controls here', () => {

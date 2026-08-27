@@ -15,11 +15,12 @@ import {
 import { useAuth } from '@/hooks/useAuth'
 import { useRatings } from '@/hooks/useRatings'
 import { useFriends } from '@/hooks/useFriends'
+import { useAnalytics } from '@/hooks/useAnalytics'
 import { useToast } from '@/hooks/use-toast'
 import { getErrorMessage } from '@/lib/utils'
 import { ProfileUpdateSchema } from '@/lib/validation'
 import { Text } from '@/components/primitives'
-import type { ProfileReputation } from '@/lib/database-types'
+import type { ProfileReputation, MyActivitySummary } from '@/lib/database-types'
 
 type FieldErrors = { name?: string; phone?: string }
 
@@ -144,8 +145,10 @@ const Profile = () => {
   const { user, loading: authLoading, updateProfile } = useAuth()
   const { getProfileReputation } = useRatings()
   const { fetchMyFriendships } = useFriends()
+  const { getMyActivitySummary } = useAnalytics()
   const [reputation, setReputation] = useState<ProfileReputation | null>(null)
   const [friendCount, setFriendCount] = useState<number | null>(null)
+  const [activitySummary, setActivitySummary] = useState<MyActivitySummary | null>(null)
 
   // One RPC call per Profile load - never blocks the rest of the page,
   // never re-fetched on every render. See PHASE3_3D_RATINGS_TRUST_SPEC.md §9.
@@ -160,6 +163,14 @@ const Profile = () => {
   useEffect(() => {
     if (!user) return
     fetchMyFriendships(user.user.id).then(({ friends }) => setFriendCount(friends.length))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user])
+
+  // Phase 3I - one RPC call per Profile load, same discipline as the two
+  // above. See PHASE3_3I_ANALYTICS_INTELLIGENCE_SPEC.md §D.
+  useEffect(() => {
+    if (!user) return
+    getMyActivitySummary().then(setActivitySummary)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
 
@@ -224,6 +235,34 @@ const Profile = () => {
         </div>
       )}
 
+      {activitySummary && (activitySummary.posted_count > 0 || activitySummary.accepted_count > 0) && (
+        <div className="mt-10 border-b-2 border-foreground pb-8">
+          <Text variant="label" tone="faint" as="div">Your activity</Text>
+          <div className="mt-4 grid gap-6 sm:grid-cols-2">
+            <div>
+              <Text variant="bodySm" tone="muted" as="p">
+                {activitySummary.posted_count} posted · {activitySummary.posted_delivered_count} delivered · {activitySummary.posted_cancelled_count} cancelled
+              </Text>
+              {activitySummary.avg_tip_given != null && (
+                <Text variant="caption" tone="faint" as="p" className="mt-1">
+                  ₹{activitySummary.avg_tip_given.toFixed(0)} average tip given
+                </Text>
+              )}
+            </div>
+            <div>
+              <Text variant="bodySm" tone="muted" as="p">
+                {activitySummary.accepted_count} accepted · {activitySummary.completed_deliveries} delivered · {activitySummary.deliveries_cancelled_count} cancelled
+              </Text>
+              {activitySummary.avg_tip_earned != null && (
+                <Text variant="caption" tone="faint" as="p" className="mt-1">
+                  ₹{activitySummary.avg_tip_earned.toFixed(0)} average tip earned
+                </Text>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mt-12">
         <Text variant="label" tone="faint" as="div" className="pb-3">Manage</Text>
 
@@ -267,7 +306,7 @@ const Profile = () => {
           </Link>
         </div>
 
-        <div className="flex items-center justify-between py-6">
+        <div className="flex items-center justify-between border-b-2 border-foreground py-6">
           <div>
             <Text variant="h3" className="block">Settings</Text>
             <Text variant="caption" tone="muted" as="p" className="mt-0.5">Account, password, and appearance.</Text>
@@ -277,6 +316,19 @@ const Profile = () => {
             className="font-body text-body-sm font-semibold text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             Open settings
+          </Link>
+        </div>
+
+        <div className="flex items-center justify-between py-6">
+          <div>
+            <Text variant="h3" className="block">Campus insights</Text>
+            <Text variant="caption" tone="muted" as="p" className="mt-0.5">Order volume, popular spots, and busy hours across CampusLink.</Text>
+          </div>
+          <Link
+            to="/insights"
+            className="font-body text-body-sm font-semibold text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            View insights
           </Link>
         </div>
       </div>
