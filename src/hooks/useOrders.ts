@@ -32,6 +32,12 @@ export const useOrders = () => {
 
   const fetchOrders = async (filters?: {
     status?: string
+    /** Activity restructure (Ordering/Delivering) - "active" or "history"
+     * scoping, e.g. ACTIVE_STATUSES/TERMINAL_STATUSES from orderStatus.ts.
+     * A separate option from `status` (a single exact match, used by the
+     * public board) rather than overloading it, since this is always a
+     * multi-value membership check. */
+    statusIn?: string[]
     friendsOnly?: boolean
     nearby?: boolean
     highTips?: boolean
@@ -39,6 +45,9 @@ export const useOrders = () => {
     viewerId?: string
     /** scope results to orders THIS user posted/is delivering, instead of the public feed */
     mine?: { as: 'customer' | 'deliverer'; userId: string } | { as: 'either'; userId: string }
+    /** Caps the result at the DB level - e.g. a 3-item history preview
+     * should never fetch a user's entire order history to render it. */
+    limit?: number
   }) => {
     try {
       setLoading(true)
@@ -48,6 +57,10 @@ export const useOrders = () => {
       // Apply filters
       if (filters?.status && filters.status !== 'all') {
         query = query.eq('status', filters.status)
+      }
+
+      if (filters?.statusIn && filters.statusIn.length > 0) {
+        query = query.in('status', filters.statusIn)
       }
 
       if (filters?.nearby) {
@@ -69,7 +82,13 @@ export const useOrders = () => {
         query = query.eq('status', 'pending')
       }
 
-      const { data, error } = await query.order('created_at', { ascending: false })
+      query = query.order('created_at', { ascending: false })
+
+      if (filters?.limit) {
+        query = query.limit(filters.limit)
+      }
+
+      const { data, error } = await query
 
       if (error) throw error
 

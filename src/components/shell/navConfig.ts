@@ -12,20 +12,25 @@ import { Home, Activity, Users, Plus, User, type LucideIcon } from "lucide-react
  * on purpose so the mobile tab bar's FAB renders centered between two
  * items on each side, while DesktopNav filters it out into its own CTA.
  *
- * "Activity" has no dedicated page yet. It points at /my-orders, the
- * closest existing view of a user's own requests and deliveries, rather
- * than inventing a route with nothing behind it.
+ * "Activity" (Ordering/Delivering restructure) points at
+ * /activity/ordering, its default sub-view - but must stay lit up for
+ * every /activity/* route (Delivering, either history page), not just
+ * that one exact path, hence `matchPrefix` below.
  */
 export interface NavItemConfig {
   key: string;
   label: string;
   href: string;
   icon: LucideIcon;
+  /** Overrides `href` for active-route matching only - e.g. Activity's
+   * href points at one specific sub-view, but the nav item must stay
+   * highlighted across the whole /activity/* family. Defaults to `href`. */
+  matchPrefix?: string;
 }
 
 export const NAV_ITEMS: NavItemConfig[] = [
   { key: "home", label: "Home", href: "/", icon: Home },
-  { key: "activity", label: "Activity", href: "/my-orders", icon: Activity },
+  { key: "activity", label: "Activity", href: "/activity/ordering", icon: Activity, matchPrefix: "/activity" },
   { key: "friends", label: "Friends", href: "/friends", icon: Users },
   { key: "create", label: "Post", href: "/post-request", icon: Plus },
   { key: "profile", label: "Profile", href: "/profile", icon: User },

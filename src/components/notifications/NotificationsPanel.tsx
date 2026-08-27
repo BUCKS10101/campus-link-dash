@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Text } from '@/components/primitives'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/hooks/useAuth'
 import { useNotifications } from '@/hooks/useNotifications'
 import { formatNotificationText } from '@/lib/notificationContent'
 import type { NotificationWithOrder } from '@/lib/database-types'
@@ -61,11 +62,30 @@ const NotificationRow = ({
  */
 export function NotificationsList({ onNavigate }: { onNavigate?: () => void }) {
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications()
+  const { user } = useAuth()
   const navigate = useNavigate()
 
   const handleOpen = (notification: NotificationWithOrder) => {
     if (notification.read_at == null) void markRead(notification.id)
-    navigate(notification.order_id ? `/my-orders?order=${notification.order_id}` : '/friends')
+
+    if (!notification.order_id || !notification.order) {
+      navigate('/friends')
+      onNavigate?.()
+      return
+    }
+
+    // Activity restructure (Ordering/Delivering split, see
+    // PHASE3_ACTIVITY_RESTRUCTURE) - a notification's order could be one
+    // this viewer requested or one they're delivering (e.g. a
+    // cancellation or chat notification goes to "whichever party didn't
+    // trigger it", which can be either role). Route to whichever view
+    // actually holds this order for the current viewer, not always
+    // Ordering, so a deliverer's own notifications still land somewhere
+    // real rather than an empty Ordering page.
+    const viewerId = user?.user?.id ?? null
+    const isDeliverer = viewerId != null && notification.order?.deliverer_id === viewerId
+    const base = isDeliverer ? '/activity/delivering' : '/activity/ordering'
+    navigate(`${base}?order=${notification.order_id}`)
     onNavigate?.()
   }
 

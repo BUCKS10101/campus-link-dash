@@ -24,7 +24,7 @@ export function MobileNav() {
     >
       <div className="mx-auto flex h-16 max-w-layout items-stretch justify-around px-2">
         {items.map((item) => {
-          const active = isNavItemActive(location.pathname, item.href);
+          const active = isNavItemActive(location.pathname, item.matchPrefix ?? item.href);
           if (item.key === "create") {
             return <CreateAction key={item.key} href={item.href} variant="mobile" active={active} />;
           }

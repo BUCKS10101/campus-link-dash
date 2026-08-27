@@ -43,6 +43,68 @@ describe('fetchOrders column safety', () => {
     expect(selectArg).not.toMatch(/\bdistance\b(?!_km)/)
   })
 
+  it('scopes to requester_id for a customer-role "mine" fetch (Activity restructure - Ordering)', async () => {
+    const builder = createQueryBuilder({ data: [], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.fetchOrders({ mine: { as: 'customer', userId: 'viewer-1' } })
+    })
+
+    expect(builder.eq).toHaveBeenCalledWith('requester_id', 'viewer-1')
+    expect(builder.eq).not.toHaveBeenCalledWith('deliverer_id', 'viewer-1')
+  })
+
+  it('scopes to deliverer_id for a deliverer-role "mine" fetch (Activity restructure - Delivering)', async () => {
+    const builder = createQueryBuilder({ data: [], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.fetchOrders({ mine: { as: 'deliverer', userId: 'viewer-1' } })
+    })
+
+    expect(builder.eq).toHaveBeenCalledWith('deliverer_id', 'viewer-1')
+    expect(builder.eq).not.toHaveBeenCalledWith('requester_id', 'viewer-1')
+  })
+
+  it('applies statusIn as an .in() membership filter, for the active/history status split', async () => {
+    const builder = createQueryBuilder({ data: [], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.fetchOrders({ statusIn: ['pending', 'accepted', 'picked_up', 'out_for_delivery'] })
+    })
+
+    expect(builder.in).toHaveBeenCalledWith('status', ['pending', 'accepted', 'picked_up', 'out_for_delivery'])
+  })
+
+  it('applies limit at the DB level, for a bounded history preview', async () => {
+    const builder = createQueryBuilder({ data: [], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.fetchOrders({ limit: 3 })
+    })
+
+    expect(builder.limit).toHaveBeenCalledWith(3)
+  })
+
+  it('never applies .limit() when no limit is requested - the full history page must not be capped', async () => {
+    const builder = createQueryBuilder({ data: [], error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useOrders())
+    await act(async () => {
+      await result.current.fetchOrders({ mine: { as: 'customer', userId: 'viewer-1' }, statusIn: ['delivered', 'cancelled'] })
+    })
+
+    expect(builder.limit).not.toHaveBeenCalled()
+  })
+
   it('uses requester_id/addressee_id (not user_id/friend_id) for the friendsOnly lookup', async () => {
     const ordersBuilder = createQueryBuilder({ data: [], error: null })
     const friendshipsBuilder = createQueryBuilder({ data: [], error: null })

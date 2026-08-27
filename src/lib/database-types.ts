@@ -240,7 +240,7 @@ export interface Notification {
  * ever populated, matching `order_id`/`friendship_id`.
  */
 export interface NotificationWithOrder extends Notification {
-  order: { restaurant_name: string } | null
+  order: { restaurant_name: string; requester_id: string; deliverer_id: string | null } | null
   friendship: {
     requester_id: string
     addressee_id: string

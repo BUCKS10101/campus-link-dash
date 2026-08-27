@@ -281,7 +281,9 @@ const Home = () => {
     try {
       await acceptOrder(orderId, user.user.id)
       toast({ title: 'Taken', description: "It's yours — head to Activity to see it." })
-      navigate('/my-orders')
+      // Accepting makes the viewer this order's deliverer, so the
+      // Delivering view (not Ordering) is where it actually shows up.
+      navigate('/activity/delivering')
     } catch (error) {
       toast({
         title: 'Someone got there first',

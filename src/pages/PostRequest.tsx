@@ -344,7 +344,7 @@ const PostRequest = () => {
         </div>
 
         <div data-success-actions className="mt-8 flex flex-wrap items-center gap-6">
-          <Button onClick={() => navigate('/my-orders')}>View on Activity</Button>
+          <Button onClick={() => navigate('/activity/ordering')}>View on Activity</Button>
           <button
             type="button"
             onClick={resetForm}

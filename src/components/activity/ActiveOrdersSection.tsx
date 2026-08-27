@@ -1,34 +1,38 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertCircle, ChevronDown } from 'lucide-react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { useAuth } from '@/hooks/useAuth'
-import { useOrders, type WalkingRoute } from '@/hooks/useOrders'
-import { useRatings } from '@/hooks/useRatings'
-import { useToast } from '@/hooks/use-toast'
-import { RatingDialog } from '@/components/ratings/RatingDialog'
+import { Link } from 'react-router-dom'
 import { CancelOrderDialog } from '@/components/orders/CancelOrderDialog'
 import { getErrorMessage, cn } from '@/lib/utils'
 import { formatOrderItems, formatDeliveryLocation, formatRouteEstimate } from '@/lib/orderContent'
 import { Text, Rule, StatusBadge } from '@/components/primitives'
 import { ChatThread } from '@/components/chat/ChatThread'
+import { useToast } from '@/hooks/use-toast'
 import { createTimeline, DURATION, EASE } from '@/lib/motion/gsap'
 import { useCampusPoints } from '@/hooks/useCampusPoints'
 import { usePublishDeliveryLocation, useDeliveryLocation } from '@/hooks/useDeliveryLocation'
+import type { WalkingRoute } from '@/hooks/useOrders'
+import { NEXT_DELIVERER_ACTION } from '@/lib/orderStatus'
 import type { OrderWithProfiles, Order } from '@/lib/database-types'
 
-const CampusMap = React.lazy(() => import('@/components/map/CampusMap'))
+/**
+ * Extracted from the pre-restructure MyOrders.tsx (3G) verbatim - every
+ * active-order interaction (timeline, OTP, live tracking, chat,
+ * cancellation) is unchanged behavior, just relocated so both the
+ * Ordering and Delivering pages can each render their own single-role
+ * active list instead of two lanes on one shared page. See
+ * PHASE3_ACTIVITY_RESTRUCTURE (Ordering/Delivering split).
+ */
 
-const TERMINAL_STATUSES: Order['status'][] = ['delivered', 'cancelled']
 const STATUS_SEQUENCE: Order['status'][] = ['pending', 'accepted', 'picked_up', 'out_for_delivery', 'delivered']
 
-const NEXT_DELIVERER_ACTION: Partial<Record<Order['status'], { label: string; next: Order['status'] }>> = {
-  accepted: { label: 'Mark picked up', next: 'picked_up' },
-  picked_up: { label: 'Mark out for delivery', next: 'out_for_delivery' },
-}
+const REQUESTER_CANCELLABLE: Order['status'][] = ['pending', 'accepted']
+// Once picked_up, the deliverer already has the item in hand - normal
+// cancellation is no longer offered to them (see
+// PHASE3_3G_DELIVERY_LIFECYCLE_SPEC.md's corrected matrix).
+const DELIVERER_CANCELLABLE: Order['status'][] = ['accepted']
 
 /** A five-node rule showing the real DB state machine. Ordered, not
  * timestamped — orders has no per-state timestamp columns. */
@@ -41,9 +45,6 @@ const OrderTimeline = ({ status }: { status: Order['status'] }) => {
     <div className="flex items-center gap-1" aria-label={`Order status: ${status.replace(/_/g, ' ')}`}>
       {STATUS_SEQUENCE.map((step, i) => (
         <React.Fragment key={step}>
-          {/* Berry, not forest - the timeline's fill is a small active
-              signal (which step is live right now), exactly the "rare
-              signal" role berry is reserved for, not a structural color. */}
           {i > 0 && (
             <div
               className={cn('h-px flex-1 transition-colors duration-slow ease-emphasized', i <= currentIndex ? 'bg-primary-deep' : 'bg-border')}
@@ -51,12 +52,6 @@ const OrderTimeline = ({ status }: { status: Order['status'] }) => {
             />
           )}
           <div
-            // The newly-current dot gets animate-dot-settle fresh (it
-            // wasn't on the element a render ago), so the browser plays it
-            // every time a step becomes current - no remount needed. The
-            // rule beside it fills in over the same beat via the plain CSS
-            // color transition above, so advancing a step reads as one
-            // coordinated movement rather than an instant swap.
             className={cn(
               'size-2 rounded-full transition-colors duration-slow ease-emphasized',
               i < currentIndex ? 'bg-primary-deep' : i === currentIndex ? 'bg-primary-deep ring-2 ring-primary-deep/25 animate-dot-settle' : 'bg-border',
@@ -114,11 +109,6 @@ const OtpPanel = ({
     return () => { cancelled = true }
   }, [isCustomer, otpEligible, order.id, order.status])
 
-  // Signature moment: the OTP reveal. The slip settles into place, then
-  // each digit reveals in sequence - a small, deliberate, physical-feeling
-  // handoff rather than the code just appearing. The value itself always
-  // comes from get_my_order_otp(); this only animates what's already on
-  // screen, never anything security-relevant.
   useEffect(() => {
     if (!otp || !slipRef.current) return
     const digits = slipRef.current.querySelectorAll<HTMLElement>('[data-otp-digit]')
@@ -133,10 +123,6 @@ const OtpPanel = ({
     return () => { tl.kill() }
   }, [otp])
 
-  // Signature moment: delivery complete. Holds the confirmation on screen
-  // just long enough to register, then hands off to the caller's refetch
-  // (which is what actually moves the order into history) - the delay is
-  // the animation's own real duration, not an arbitrary wait.
   useEffect(() => {
     if (!justDelivered || !deliveredRef.current) return
     const rule = deliveredRef.current.querySelector<HTMLElement>('[data-delivered-rule]')
@@ -255,15 +241,13 @@ const OtpPanel = ({
 /**
  * Real walking route + optional live location - see
  * supabase/migrations/20260826140000_campus_routing_and_live_location.sql
- * and PHASE3_3A_ARCHITECTURE_REVISION.md. Only rendered while
- * ActiveOrderDetail itself is mounted (the expanded order), and only does
- * anything at all once the order is picked_up/out_for_delivery AND both
- * ends resolved to a seeded campus_points row at creation time - most
- * orders won't have that yet (see PHASE3_3A_ARCHITECTURE_PROPOSAL.md), so
- * this renders nothing rather than a broken or fabricated map for them.
- * MapLibre itself only loads (via the lazy CampusMap import) once this
- * condition is actually met.
+ * and PHASE3_3A_ARCHITECTURE_REVISION.md. Only rendered while the
+ * expanded order's detail is mounted, and only does anything at all once
+ * the order is picked_up/out_for_delivery AND both ends resolved to a
+ * seeded campus_points row at creation time.
  */
+const CampusMap = React.lazy(() => import('@/components/map/CampusMap'))
+
 const DeliveryTrackingSection = ({
   order,
   isDeliverer,
@@ -282,9 +266,6 @@ const DeliveryTrackingSection = ({
   const trackingEligible = order.status === 'picked_up' || order.status === 'out_for_delivery'
   const pickupPoint = order.pickup_point_id ? points.find((p) => p.id === order.pickup_point_id) : undefined
   const deliveryPoint = order.delivery_point_id ? points.find((p) => p.id === order.delivery_point_id) : undefined
-  // A custom pin (PHASE3_3A_LOCATION_SPEC.md §14/§16) - mutually exclusive
-  // with delivery_point_id on a real order, so at most one of these two
-  // "delivery target" branches is ever populated.
   const hasCustomDelivery = order.custom_delivery_lat != null && order.custom_delivery_lng != null
   const routable = trackingEligible && !!pickupPoint && (!!deliveryPoint || hasCustomDelivery)
 
@@ -304,12 +285,6 @@ const DeliveryTrackingSection = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routable, pickupPoint?.id, deliveryPoint?.id, order.custom_delivery_lat, order.custom_delivery_lng])
 
-  // Both hooks are always called (rules of hooks) - each is a no-op
-  // (doesn't touch geolocation or subscribe) while its own `enabled`
-  // argument is false. Deliverer sharing requires the explicit checkbox
-  // below, separate from just having the section visible; requester
-  // reception is gated only on the order actually being in an active
-  // delivery state.
   const { error: shareError } = usePublishDeliveryLocation(isDeliverer ? order.id : null, isDeliverer && sharing)
   const { location: liveLocation, stale } = useDeliveryLocation(!isDeliverer ? order.id : null, !isDeliverer && trackingEligible)
 
@@ -368,14 +343,16 @@ const DeliveryTrackingSection = ({
   )
 }
 
-/** The rich order object — status, counterpart, next action, OTP, chat.
- * Only mounted for the order currently expanded in its lane, so OTP fetches
- * and chat subscriptions never fire for orders the user hasn't opened. */
-const REQUESTER_CANCELLABLE: Order['status'][] = ['pending', 'accepted']
-// Once picked_up, the deliverer already has the item in hand - normal
-// cancellation is no longer offered to them (see
-// PHASE3_3G_DELIVERY_LIFECYCLE_SPEC.md's corrected matrix).
-const DELIVERER_CANCELLABLE: Order['status'][] = ['accepted']
+interface DetailProps {
+  currentUserId: string
+  getMyOrderOtp: (orderId: string) => Promise<string>
+  verifyDeliveryOtp: (orderId: string, code: string) => Promise<boolean>
+  computeWalkingRoute: (pickupPointId: string, deliveryPointId: string) => Promise<WalkingRoute | null>
+  computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
+  onAdvance: (order: OrderWithProfiles) => void
+  onVerified: () => void
+  onCancel: (order: OrderWithProfiles, role: 'requester' | 'deliverer') => Promise<void>
+}
 
 const ActiveOrderDetail = ({
   order,
@@ -388,18 +365,7 @@ const ActiveOrderDetail = ({
   onAdvance,
   onVerified,
   onCancel,
-}: {
-  order: OrderWithProfiles
-  role: 'requester' | 'deliverer'
-  currentUserId: string
-  getMyOrderOtp: (orderId: string) => Promise<string>
-  verifyDeliveryOtp: (orderId: string, code: string) => Promise<boolean>
-  computeWalkingRoute: (pickupPointId: string, deliveryPointId: string) => Promise<WalkingRoute | null>
-  computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
-  onAdvance: (order: OrderWithProfiles) => void
-  onVerified: () => void
-  onCancel: (order: OrderWithProfiles, role: 'requester' | 'deliverer') => Promise<void>
-}) => {
+}: { order: OrderWithProfiles; role: 'requester' | 'deliverer' } & DetailProps) => {
   const isCustomer = role === 'requester'
   const isDeliverer = role === 'deliverer'
   const counterpart = isCustomer ? order.deliverer_profile : order.requester_profile
@@ -461,9 +427,9 @@ const ActiveOrderDetail = ({
   )
 }
 
-/** One active order's summary row - the header of its lane entry, always
+/** One active order's summary row - the header of its entry, always
  * shown. Expands into ActiveOrderDetail when this is the open one, or
- * always when it's the only active order in its lane. */
+ * always when it's the only active order. */
 const ActiveOrderRow = ({
   order,
   role,
@@ -475,21 +441,9 @@ const ActiveOrderRow = ({
   role: 'requester' | 'deliverer'
   expanded: boolean
   onToggle: () => void
-  currentUserId: string
-  getMyOrderOtp: (orderId: string) => Promise<string>
-  verifyDeliveryOtp: (orderId: string, code: string) => Promise<boolean>
-  computeWalkingRoute: (pickupPointId: string, deliveryPointId: string) => Promise<WalkingRoute | null>
-  computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
-  onAdvance: (order: OrderWithProfiles) => void
-  onVerified: () => void
-  onCancel: (order: OrderWithProfiles, role: 'requester' | 'deliverer') => Promise<void>
-}) => {
+} & DetailProps) => {
   const isCustomer = role === 'requester'
 
-  // The order currently open gets real focal weight - larger type, a
-  // mono tip numeral instead of a small tag. Everything collapsed stays
-  // compact and quiet, so opening one order visibly promotes it rather
-  // than just toggling a chevron.
   return (
     <div className={expanded ? 'py-6' : 'py-4'}>
       <button
@@ -530,35 +484,34 @@ const ActiveOrderRow = ({
   )
 }
 
-const LANE_EMPTY: Record<'requester' | 'deliverer', { message: string; ctaLabel: string; ctaHref: string }> = {
-  requester: { message: 'Nothing active.', ctaLabel: 'Post a request', ctaHref: '/post-request' },
-  deliverer: { message: 'Nothing active.', ctaLabel: 'Browse the board', ctaHref: '/' },
-}
-
-const Lane = ({
-  title,
-  role,
-  orders,
-  expandedId,
-  onToggle,
-  ...detailProps
-}: {
+export interface ActiveOrdersSectionProps extends DetailProps {
   title: string
   role: 'requester' | 'deliverer'
   orders: OrderWithProfiles[]
   expandedId: string | null
   onToggle: (id: string) => void
-  currentUserId: string
-  getMyOrderOtp: (orderId: string) => Promise<string>
-  verifyDeliveryOtp: (orderId: string, code: string) => Promise<boolean>
-  computeWalkingRoute: (pickupPointId: string, deliveryPointId: string) => Promise<WalkingRoute | null>
-  computeWalkingRouteCustom: (pickupPointId: string, lat: number, lng: number) => Promise<WalkingRoute | null>
-  onAdvance: (order: OrderWithProfiles) => void
-  onVerified: () => void
-  onCancel: (order: OrderWithProfiles, role: 'requester' | 'deliverer') => Promise<void>
-}) => {
-  const empty = LANE_EMPTY[role]
+  emptyMessage: string
+  emptyCtaLabel: string
+  emptyCtaHref: string
+}
 
+/**
+ * The single-role active-orders list for either the Ordering or
+ * Delivering page - was "Lane" in the pre-restructure two-column
+ * MyOrders.tsx; each page now renders exactly one of these, not two
+ * side by side.
+ */
+export function ActiveOrdersSection({
+  title,
+  role,
+  orders,
+  expandedId,
+  onToggle,
+  emptyMessage,
+  emptyCtaLabel,
+  emptyCtaHref,
+  ...detailProps
+}: ActiveOrdersSectionProps) {
   return (
     <section>
       <div className="flex items-baseline justify-between gap-3 border-b-2 border-foreground pb-4">
@@ -570,19 +523,17 @@ const Lane = ({
 
       {orders.length === 0 ? (
         <div className="flex flex-col items-start gap-3 py-6">
-          <Text variant="bodySm" tone="faint">{empty.message}</Text>
+          <Text variant="bodySm" tone="faint">{emptyMessage}</Text>
           <Link
-            to={empty.ctaHref}
+            to={emptyCtaHref}
             className="font-body text-body-sm font-semibold text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
-            {empty.ctaLabel}
+            {emptyCtaLabel}
           </Link>
         </div>
       ) : (
         <div>
           {orders.map((order, i) => {
-            // Nothing explicitly chosen yet - default to the first (most
-            // recent) order open rather than leaving every row collapsed.
             const expanded = expandedId === null ? i === 0 : expandedId === order.id
             return (
               <React.Fragment key={order.id}>
@@ -602,244 +553,3 @@ const Lane = ({
     </section>
   )
 }
-
-const ActivitySkeleton = () => (
-  <div className="max-w-measure" aria-busy="true">
-    <span className="sr-only">Loading activity</span>
-    <div className="border-b-2 border-foreground pb-8" aria-hidden="true">
-      <Skeleton className="h-3 w-20" />
-      <Skeleton className="mt-4 h-9 w-72 max-w-full" />
-      <Skeleton className="mt-3 h-4 w-40" />
-    </div>
-    <div className="mt-8 grid gap-10 md:grid-cols-2" aria-hidden="true">
-      {[0, 1].map((lane) => (
-        <div key={lane}>
-          <Skeleton className="h-3 w-24" />
-          <div className="mt-5 flex flex-col gap-2">
-            <Skeleton className="h-5 w-48 max-w-full" />
-            <Skeleton className="h-4 w-56 max-w-full" />
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-)
-
-const MyOrders = () => {
-  const { toast } = useToast()
-  const { user, loading: authLoading } = useAuth()
-  const { orders, loading, error, fetchOrders, updateOrderStatus, cancelOrder, getMyOrderOtp, verifyDeliveryOtp, computeWalkingRoute, computeWalkingRouteCustom } = useOrders()
-  const { fetchMyRatedOrderIds } = useRatings()
-  const [searchParams] = useSearchParams()
-  const [expandedRequesterId, setExpandedRequesterId] = useState<string | null>(null)
-  const [expandedDelivererId, setExpandedDelivererId] = useState<string | null>(null)
-  // One query per Activity load, not one per past order row (Phase 3D) -
-  // see PHASE3_3D_RATINGS_TRUST_SPEC.md §10.
-  const [ratedOrderIds, setRatedOrderIds] = useState<Set<string>>(new Set())
-  // Only the very first load shows the full skeleton - refetch() after
-  // marking an order picked up/delivered sets `loading` again too, and
-  // blanking the whole page back to a skeleton at that moment would drop
-  // scroll position and collapse whichever row the user just expanded.
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
-
-  useEffect(() => {
-    if (user) {
-      fetchOrders({ mine: { as: 'either', userId: user.user.id } })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user])
-
-  useEffect(() => {
-    if (!user) return
-    fetchMyRatedOrderIds(user.user.id).then(setRatedOrderIds)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user])
-
-  // Deep-link from a notification's click-through (?order=<id>) - opens
-  // whichever lane that order actually belongs to for this viewer.
-  useEffect(() => {
-    const targetId = searchParams.get('order')
-    if (!targetId || !user) return
-    const target = orders.find((o) => o.id === targetId)
-    if (!target) return
-    if (target.requester_id === user.user.id) setExpandedRequesterId(targetId)
-    if (target.deliverer_id === user.user.id) setExpandedDelivererId(targetId)
-  }, [searchParams, orders, user])
-
-  useEffect(() => {
-    if (!loading && !hasLoadedOnce) setHasLoadedOnce(true)
-  }, [loading, hasLoadedOnce])
-
-  const refetch = () => {
-    if (user) fetchOrders({ mine: { as: 'either', userId: user.user.id } })
-  }
-
-  const { requesterActive, delivererActive, past } = useMemo(() => {
-    if (!user) return { requesterActive: [], delivererActive: [], past: [] as OrderWithProfiles[] }
-    const active = orders.filter((o) => !TERMINAL_STATUSES.includes(o.status))
-    return {
-      requesterActive: active.filter((o) => o.requester_id === user.user.id),
-      delivererActive: active.filter((o) => o.deliverer_id === user.user.id),
-      past: orders.filter((o) => TERMINAL_STATUSES.includes(o.status)),
-    }
-  }, [orders, user])
-
-  const handleAdvance = async (order: OrderWithProfiles) => {
-    if (!user) return
-    const next = NEXT_DELIVERER_ACTION[order.status]
-    if (!next) return
-    try {
-      await updateOrderStatus(order.id, next.next, user.user.id)
-      toast({ title: 'Updated', description: next.next.replace(/_/g, ' ') })
-      refetch()
-    } catch (err) {
-      toast({ title: "Couldn't update", description: getErrorMessage(err, 'Please try again.'), variant: 'destructive' })
-    }
-  }
-
-  // Rethrows on failure so CancelOrderDialog's own catch block shows the
-  // error inline (its "Couldn't cancel" toast) - this function only owns
-  // the refetch-on-success side effect, not error presentation.
-  const handleCancel = async (order: OrderWithProfiles, role: 'requester' | 'deliverer') => {
-    if (!user) return
-    await cancelOrder(order.id, role, user.user.id)
-    refetch()
-  }
-
-  if (authLoading || (loading && !hasLoadedOnce)) {
-    return <ActivitySkeleton />
-  }
-
-  if (error) {
-    return (
-      <div className="max-w-measure">
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Couldn't load your activity</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-        <Button className="mt-4" onClick={refetch}>Try again</Button>
-      </div>
-    )
-  }
-
-  if (!user) return null
-
-  const totalActive = requesterActive.length + delivererActive.length
-
-  if (totalActive === 0 && past.length === 0) {
-    return (
-      <div className="py-16">
-        <Text variant="displaySm" accent as="p">Nothing yet.</Text>
-        <Text variant="body" tone="muted" className="mt-3 max-w-[42ch]">
-          Post a request, or take a run from the board — both show up here.
-        </Text>
-      </div>
-    )
-  }
-
-  const headline = totalActive === 0
-    ? "Nothing needs you right now."
-    : requesterActive.length > 0 && delivererActive.length > 0
-      ? "You're asking and carrying at once."
-      : requesterActive.length > 0
-        ? (requesterActive.length === 1 ? "You're waiting on one request." : `You're waiting on ${requesterActive.length} requests.`)
-        : (delivererActive.length === 1 ? "You're carrying for someone." : `You're carrying for ${delivererActive.length} people.`)
-
-  return (
-    <div className={cn('max-w-measure transition-opacity duration-base md:max-w-none', loading && 'opacity-60')}>
-      <div className="border-b-2 border-foreground pb-8">
-        <Text variant="label" tone="faint" as="div">Activity</Text>
-        <Text variant="display" accent className="mt-4 block max-w-[22ch] md:max-w-[26ch]">
-          {headline}
-        </Text>
-        {totalActive > 0 && (
-          <Text variant="caption" tone="faint" className="mt-3 block tabular-nums">
-            {requesterActive.length} asked for · {delivererActive.length} carrying
-          </Text>
-        )}
-      </div>
-
-      <div className="mt-8 grid gap-x-12 gap-y-10 md:grid-cols-2">
-        <Lane
-          title="You asked for"
-          role="requester"
-          orders={requesterActive}
-          expandedId={expandedRequesterId}
-          onToggle={(id) => setExpandedRequesterId((cur) => (cur === id ? null : id))}
-          currentUserId={user.user.id}
-          getMyOrderOtp={getMyOrderOtp}
-          verifyDeliveryOtp={verifyDeliveryOtp}
-          computeWalkingRoute={computeWalkingRoute}
-          computeWalkingRouteCustom={computeWalkingRouteCustom}
-          onAdvance={handleAdvance}
-          onVerified={refetch}
-          onCancel={handleCancel}
-        />
-
-        <Lane
-          title="You're carrying"
-          role="deliverer"
-          orders={delivererActive}
-          expandedId={expandedDelivererId}
-          onToggle={(id) => setExpandedDelivererId((cur) => (cur === id ? null : id))}
-          currentUserId={user.user.id}
-          getMyOrderOtp={getMyOrderOtp}
-          verifyDeliveryOtp={verifyDeliveryOtp}
-          computeWalkingRoute={computeWalkingRoute}
-          computeWalkingRouteCustom={computeWalkingRouteCustom}
-          onAdvance={handleAdvance}
-          onVerified={refetch}
-          onCancel={handleCancel}
-        />
-      </div>
-
-      {past.length > 0 && (
-        <section className="mt-16 max-w-measure">
-          <Text variant="label" tone="faint" as="div" className="border-b border-border pb-3">Earlier</Text>
-          <div>
-            {past.map((order, i) => {
-              const isRequester = order.requester_id === user.user.id
-              const counterpartName = (isRequester ? order.deliverer_profile?.name : order.requester_profile?.name) ?? null
-              const canRate = order.status === 'delivered' && !ratedOrderIds.has(order.id)
-              const isCancelled = order.status === 'cancelled'
-              // cancelled_at is null on any order cancelled before this
-              // migration existed - created_at is the only honest fallback
-              // for those, never a guessed date.
-              const historyDate = isCancelled && order.cancelled_at ? order.cancelled_at : order.created_at
-              const cancelledBySelf = isCancelled && order.cancelled_by === user.user.id
-              const historyLabel = isCancelled
-                ? (cancelledBySelf ? 'You cancelled' : 'They cancelled')
-                : (isRequester ? 'Asked' : 'Carried')
-              return (
-                <React.Fragment key={order.id}>
-                  {i > 0 && <Rule />}
-                  <div className="flex items-center justify-between gap-4 py-2.5">
-                    <div className="min-w-0">
-                      <Text variant="caption" tone="muted" className="block font-semibold">{order.restaurant_name}</Text>
-                      <Text variant="caption" tone="faint" as="p">
-                        {historyLabel} · {new Date(historyDate).toLocaleDateString()}
-                      </Text>
-                      {canRate && (
-                        <div className="mt-1.5">
-                          <RatingDialog
-                            orderId={order.id}
-                            counterpartName={counterpartName}
-                            onSubmitted={(ratedId) => setRatedOrderIds((prev) => new Set(prev).add(ratedId))}
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <StatusBadge status={order.status} compact />
-                  </div>
-                </React.Fragment>
-              )
-            })}
-          </div>
-        </section>
-      )}
-    </div>
-  )
-}
-
-export default MyOrders

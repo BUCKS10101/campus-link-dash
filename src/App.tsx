@@ -8,6 +8,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { AppShell } from "@/components/shell";
+import { ActivityRedirect } from "@/components/ActivityRedirect";
 import { LoadingRegion } from "@/components/primitives";
 import { AuthProvider } from "@/hooks/useAuth";
 import { NotificationsProvider } from "@/hooks/useNotifications";
@@ -20,7 +21,10 @@ import Login from "./pages/Login";
 // Everything behind auth is split per route.
 const Home = lazy(() => import("./pages/Home"));
 const PostRequest = lazy(() => import("./pages/PostRequest"));
-const MyOrders = lazy(() => import("./pages/MyOrders"));
+const OrderingActive = lazy(() => import("./pages/activity/OrderingActive"));
+const OrderingHistory = lazy(() => import("./pages/activity/OrderingHistory"));
+const DeliveringActive = lazy(() => import("./pages/activity/DeliveringActive"));
+const DeliveringHistory = lazy(() => import("./pages/activity/DeliveringHistory"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Friends = lazy(() => import("./pages/Friends"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -60,7 +64,15 @@ const App = () => (
                   >
                     <Route path="/" element={<Home />} />
                     <Route path="/post-request" element={<PostRequest />} />
-                    <Route path="/my-orders" element={<MyOrders />} />
+                    {/* Activity restructure (Ordering/Delivering split) -
+                        /my-orders and bare /activity both redirect to the
+                        default sub-view, preserving any ?order= deep-link. */}
+                    <Route path="/my-orders" element={<ActivityRedirect />} />
+                    <Route path="/activity" element={<ActivityRedirect />} />
+                    <Route path="/activity/ordering" element={<OrderingActive />} />
+                    <Route path="/activity/ordering/history" element={<OrderingHistory />} />
+                    <Route path="/activity/delivering" element={<DeliveringActive />} />
+                    <Route path="/activity/delivering/history" element={<DeliveringHistory />} />
                     <Route path="/profile" element={<Profile />} />
                     <Route path="/friends" element={<Friends />} />
                     <Route path="/settings" element={<Settings />} />
