@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, User as UserIcon, Activity } from "lucide-react";
+import { LogOut, User as UserIcon, Activity, Settings } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,9 +16,10 @@ import {
 
 /**
  * Account access, built only from fields the database actually has —
- * profiles.name / .email — no avatar_url, no invented status text. The
- * previous menu's "Settings" item had no handler and went nowhere; it's
- * gone, not carried forward silently broken.
+ * profiles.name / .email — no avatar_url, no invented status text.
+ * Settings routes to a real page (account/security/appearance controls);
+ * an earlier version of this menu had a dead "Settings" item with no
+ * handler, which is why this one has to actually go somewhere.
  */
 export function AccountMenu() {
   const navigate = useNavigate();
@@ -69,6 +70,10 @@ export function AccountMenu() {
         <DropdownMenuItem onClick={() => navigate("/my-orders")} className="gap-2">
           <Activity className="size-4" aria-hidden="true" />
           Activity
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate("/settings")} className="gap-2">
+          <Settings className="size-4" aria-hidden="true" />
+          Settings
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleLogout} className="gap-2 text-destructive focus:text-destructive">

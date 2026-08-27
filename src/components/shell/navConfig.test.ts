@@ -24,8 +24,8 @@ describe('isNavItemActive', () => {
 })
 
 describe('NAV_ITEMS', () => {
-  it('defines exactly the approved IA: Home, Activity, Create, Profile', () => {
-    expect(NAV_ITEMS.map((i) => i.key)).toEqual(['home', 'activity', 'create', 'profile'])
+  it('defines exactly the approved IA: Home, Activity, Friends, Create, Profile', () => {
+    expect(NAV_ITEMS.map((i) => i.key)).toEqual(['home', 'activity', 'friends', 'create', 'profile'])
   })
 
   it('does not include Chat as a top-level destination', () => {
@@ -35,6 +35,11 @@ describe('NAV_ITEMS', () => {
   it('points Activity at the existing My Orders route, not an unbuilt page', () => {
     const activity = NAV_ITEMS.find((i) => i.key === 'activity')
     expect(activity?.href).toBe('/my-orders')
+  })
+
+  it('includes Friends as a first-class destination, not buried inside Profile', () => {
+    const friends = NAV_ITEMS.find((i) => i.key === 'friends')
+    expect(friends?.href).toBe('/friends')
   })
 
   it('points Create at the existing Post Request route', () => {

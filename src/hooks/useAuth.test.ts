@@ -12,6 +12,7 @@ const supabaseMock = {
     signUp: vi.fn(),
     signInWithPassword: vi.fn(),
     signOut: vi.fn(),
+    updateUser: vi.fn(),
   },
 }
 
@@ -207,6 +208,63 @@ describe('signIn', () => {
       email: 'jane@vitstudent.ac.in',
       password: 'password123',
     })
+  })
+})
+
+describe('changePassword', () => {
+  const signInAs = async (result: { current: ReturnType<typeof useAuth> }) => {
+    const profileBuilder = createQueryBuilder({
+      data: { id: 'user-1', name: 'Jane', email: 'jane@vitstudent.ac.in' },
+      error: null,
+    })
+    supabaseMock.from.mockReturnValue(profileBuilder)
+    act(() => emitAuthChange('INITIAL_SESSION', { user: { id: 'user-1', email: 'jane@vitstudent.ac.in' } }))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+  }
+
+  it('rejects a mismatched confirmation before calling Supabase at all', async () => {
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await signInAs(result)
+
+    await expect(
+      act(async () => {
+        await result.current.changePassword('oldpass123', 'newpass123', 'different123')
+      })
+    ).rejects.toThrow()
+
+    expect(supabaseMock.auth.signInWithPassword).not.toHaveBeenCalled()
+    expect(supabaseMock.auth.updateUser).not.toHaveBeenCalled()
+  })
+
+  it('re-authenticates with the current password before updating, and surfaces a clear error if it is wrong', async () => {
+    supabaseMock.auth.signInWithPassword.mockResolvedValue({ data: null, error: { message: 'Invalid login credentials' } })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await signInAs(result)
+
+    await expect(
+      act(async () => {
+        await result.current.changePassword('wrongpass', 'newpass123', 'newpass123')
+      })
+    ).rejects.toThrow('Current password is incorrect.')
+
+    expect(supabaseMock.auth.signInWithPassword).toHaveBeenCalledWith({
+      email: 'jane@vitstudent.ac.in',
+      password: 'wrongpass',
+    })
+    expect(supabaseMock.auth.updateUser).not.toHaveBeenCalled()
+  })
+
+  it('updates the password once the current one is verified', async () => {
+    supabaseMock.auth.signInWithPassword.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null })
+    supabaseMock.auth.updateUser.mockResolvedValue({ data: {}, error: null })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+    await signInAs(result)
+
+    await act(async () => {
+      await result.current.changePassword('oldpass123', 'newpass123', 'newpass123')
+    })
+
+    expect(supabaseMock.auth.updateUser).toHaveBeenCalledWith({ password: 'newpass123' })
   })
 })
 

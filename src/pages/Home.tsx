@@ -197,9 +197,9 @@ const Home = () => {
 
   const filters: { key: FilterKey; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: locationFilteredOrders.length },
+    { key: 'recommended', label: 'Recommended', count: recommendedOrders.length },
     { key: 'quick-errands', label: 'Quick errands', count: quickErrandOrders.length },
     { key: 'high-reward', label: 'High reward', count: highRewardOrders.length },
-    { key: 'recommended', label: 'Recommended', count: recommendedOrders.length },
   ]
 
   const pointLabelById = useMemo(() => new Map(campusPoints.map((p) => [p.id, p.label])), [campusPoints])
@@ -299,54 +299,49 @@ const Home = () => {
 
   return (
     <>
-      {/* The one large color field on Home, deliberately rare - forest
-          ground, ivory type. Emphasis here comes from scale and contrast
-          against the panel, not from the wine signal, which stays reserved
-          for actionable things (Take, the per-order tip) everywhere else
-          on the page. Breaks out to the layout container's horizontal
-          edges only (not the full viewport - AppShell/PageContainer stay
-          untouched); vertically it keeps PageContainer's own top padding
-          rather than cancelling it, so it always sits with clear breathing
-          room below the sticky desktop navbar instead of flush against it. */}
-      <div className="-mx-4 bg-foreground px-4 py-10 text-background sm:-mx-6 sm:px-6 md:px-10 md:py-14">
-        <Text variant="label" tone="inherit" as="div" className="opacity-60">The board, live</Text>
-        <div className="mt-5 flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
-          <Text variant="display" accent tone="inherit" className="max-w-[16ch] block text-[2.75rem] leading-[0.98] sm:text-[3.5rem] md:text-[4rem]">
+      {/* Two cards, not one full-bleed panel: a light editorial headline
+          card plus a small, separate dark plum stat card. The dark plum
+          stays rare and deliberate - reserved for this one stat and for
+          actionable things (Take, the per-order tip) elsewhere on the
+          page, never the default surface. */}
+      <div className="flex flex-col gap-5 md:flex-row md:items-stretch">
+        <div className="flex-1 rounded-xl bg-surface px-8 py-9 sm:px-10 sm:py-10">
+          <Text variant="label" tone="faint" as="div">The board · live</Text>
+          <Text variant="display" className="mt-4 block max-w-[18ch] text-[2.5rem] leading-[1.02] sm:text-[2.75rem]">
             {locationFilteredOrders.length === 0 && 'Nothing moving right now.'}
-            {locationFilteredOrders.length === 1 && 'One student needs a hand.'}
-            {locationFilteredOrders.length > 1 && `${locationFilteredOrders.length} students need a hand.`}
+            {locationFilteredOrders.length === 1 && 'One errand is live right now.'}
+            {locationFilteredOrders.length > 1 && `${locationFilteredOrders.length} errands are live right now.`}
           </Text>
-          {totalTip > 0 && (
-            <div className="shrink-0 text-left md:text-right">
-              <Text
-                variant="dataLg"
-                tone="inherit"
-                className="block text-[3.25rem] leading-none tabular-nums sm:text-[4rem] md:text-[4.5rem]"
-              >
-                ₹{totalTip}
-              </Text>
-              <Text variant="caption" tone="inherit" className="mt-1 block opacity-60">up for grabs right now</Text>
-            </div>
-          )}
+          <Text variant="body" tone="muted" as="p" className="mt-3 max-w-[42ch]">
+            Every one of them beats walking there yourself.
+          </Text>
         </div>
+        {totalTip > 0 && (
+          <div className="flex shrink-0 flex-col justify-center rounded-xl bg-primary-deep px-9 py-9 text-primary-foreground md:w-64">
+            <Text variant="dataLg" tone="inherit" className="block tabular-nums">₹{totalTip}</Text>
+            <Text variant="caption" tone="inherit" className="mt-1 block opacity-70">up for grabs right now</Text>
+          </div>
+        )}
       </div>
 
-      <div className="mt-8 flex flex-wrap items-center gap-1 rounded-sm border-b border-border bg-surface-sunken px-2 py-3 md:mt-10">
+      <div className="mt-8 flex flex-wrap items-center gap-2 md:mt-9">
         {filters.map((filter) => (
           <button
             key={filter.key}
             onClick={() => setActiveFilter(filter.key)}
             aria-pressed={activeFilter === filter.key}
             className={cn(
-              'rounded-sm px-3 py-1.5 font-body text-body-sm font-medium transition-colors duration-fast ease-out',
+              'rounded-full border px-4 py-2 font-body text-body-sm font-semibold transition-colors duration-fast ease-out',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               activeFilter === filter.key
-                ? 'bg-foreground text-background'
-                : 'text-muted-foreground hover:text-foreground',
+                ? 'border-primary bg-primary text-primary-foreground'
+                : 'border-border bg-transparent text-foreground hover:border-border-strong',
             )}
           >
             {filter.label}
-            <span className="ml-1.5 font-data text-caption tabular-nums opacity-70">{filter.count}</span>
+            <span className={cn('ml-1.5 font-data text-caption tabular-nums', activeFilter === filter.key ? 'opacity-80' : 'opacity-55')}>
+              {filter.count}
+            </span>
           </button>
         ))}
         <div className="ml-auto">
@@ -389,7 +384,7 @@ const Home = () => {
         )}
 
         {!error && featuredOrder && activeFilter === 'all' && (
-          <div className="border-b border-border pb-8 pt-6">
+          <div className="pb-8 pt-6">
             <Text variant="label" tone="faint" as="div" className="pb-3">
               Best on the board
             </Text>

@@ -1,18 +1,20 @@
-import { Home, Activity, Plus, User, type LucideIcon } from "lucide-react";
+import { Home, Activity, Users, Plus, User, type LucideIcon } from "lucide-react";
 
 /**
  * Single source of truth for primary navigation — shared by DesktopNav and
  * MobileNav so the two surfaces can never disagree about labels, icons, or
  * destinations.
  *
- * IA per the Phase 2 spec: Home / Activity / Create / Profile. Chat is
- * deliberately absent — it belongs to the order it's about, opened as a
- * contextual panel, not a permanent destination.
+ * IA: Home / Activity / Friends / Create / Profile. Chat is deliberately
+ * absent — it belongs to the order it's about, opened as a contextual
+ * panel, not a permanent destination. Friends is a first-class destination
+ * (not buried inside Profile); "create" sits in the middle of this array
+ * on purpose so the mobile tab bar's FAB renders centered between two
+ * items on each side, while DesktopNav filters it out into its own CTA.
  *
- * "Activity" has no dedicated page yet (that's 2C+ Activity work). It
- * points at /my-orders, the closest existing view of a user's own
- * requests and deliveries, rather than inventing a route with nothing
- * behind it.
+ * "Activity" has no dedicated page yet. It points at /my-orders, the
+ * closest existing view of a user's own requests and deliveries, rather
+ * than inventing a route with nothing behind it.
  */
 export interface NavItemConfig {
   key: string;
@@ -24,6 +26,7 @@ export interface NavItemConfig {
 export const NAV_ITEMS: NavItemConfig[] = [
   { key: "home", label: "Home", href: "/", icon: Home },
   { key: "activity", label: "Activity", href: "/my-orders", icon: Activity },
+  { key: "friends", label: "Friends", href: "/friends", icon: Users },
   { key: "create", label: "Post", href: "/post-request", icon: Plus },
   { key: "profile", label: "Profile", href: "/profile", icon: User },
 ];

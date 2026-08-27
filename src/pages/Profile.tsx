@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { useTheme } from 'next-themes'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -146,7 +144,6 @@ const Profile = () => {
   const { user, loading: authLoading, updateProfile } = useAuth()
   const { getProfileReputation } = useRatings()
   const { fetchMyFriendships } = useFriends()
-  const { theme, setTheme } = useTheme()
   const [reputation, setReputation] = useState<ProfileReputation | null>(null)
   const [friendCount, setFriendCount] = useState<number | null>(null)
 
@@ -255,7 +252,7 @@ const Profile = () => {
           </Link>
         </div>
 
-        <div className="flex items-center justify-between py-6">
+        <div className="flex items-center justify-between border-b-2 border-foreground py-6">
           <div>
             <Text variant="h3" className="block">Friends</Text>
             <Text variant="caption" tone="muted" as="p" className="mt-0.5">
@@ -269,21 +266,18 @@ const Profile = () => {
             View friends
           </Link>
         </div>
-      </div>
 
-      <div className="mt-12">
-        <Text variant="label" tone="faint" as="div" className="pb-3">Preferences</Text>
-
-        <div className="flex items-center justify-between border-b-2 border-foreground py-6">
+        <div className="flex items-center justify-between py-6">
           <div>
-            <Text variant="h3" className="block">Dark mode</Text>
-            <Text variant="caption" tone="muted" as="p" className="mt-0.5">Switch the whole app's appearance.</Text>
+            <Text variant="h3" className="block">Settings</Text>
+            <Text variant="caption" tone="muted" as="p" className="mt-0.5">Account, password, and appearance.</Text>
           </div>
-          <Switch
-            checked={theme === 'dark'}
-            onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
-            aria-label="Toggle dark mode"
-          />
+          <Link
+            to="/settings"
+            className="font-body text-body-sm font-semibold text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            Open settings
+          </Link>
         </div>
       </div>
     </div>
