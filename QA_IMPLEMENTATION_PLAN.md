@@ -88,8 +88,31 @@ Reported at the end of email-flow testing, not yet — see §2 above for current
 
 | Fix # | Issue | Branch | Commit | Merged to main | Regression checked |
 |---|---|---|---|---|---|
-| 1 | AUTH-03/AUTH-04/AUTH-11 — duplicate-registration false success | `qa/auth-duplicate-signup` | pending | pending | pending |
-| 2 | AUTH-09 — missing forgot-password flow | `qa/auth-forgot-password` | pending | pending | pending |
+| 1 | AUTH-03/AUTH-04/AUTH-11 — duplicate-registration false success | `qa/auth-duplicate-signup` | `e8660fa` | ✅ merged | 581 tests, 579 pass (2 pre-existing unrelated failures), tsc/lint/build clean |
+| 2 | AUTH-09 — missing forgot-password flow | `qa/auth-forgot-password` | pending merge | pending | 599 tests, 597 pass (same 2 pre-existing unrelated failures), tsc/lint/build clean |
+
+### Fix #2 detail (AUTH-09)
+
+**Root cause:** the feature simply never existed — no "Forgot password?" UI, no route, no `resetPasswordForEmail`/`updateUser` calls anywhere in the codebase (confirmed by full-repo search before writing any code).
+**Fix:** rides entirely on Supabase's own native password-recovery mechanism, same "no custom token system" discipline as the existing email-verification flow.
+- `useAuth.tsx`: two new functions, `sendPasswordResetEmail(email)` (calls `resetPasswordForEmail` with `redirectTo: {origin}/reset-password`) and `updatePasswordAfterReset(newPassword, confirmPassword)` (calls `updateUser({password})` — deliberately no current-password reproof, unlike `changePassword()`, since a forgotten password can't satisfy that by definition).
+- `Login.tsx`: a third `step: 'forgot'` mode alongside the existing login/register steps — "Forgot password?" link next to the password field, single-email form, and a deliberately identical confirmation message regardless of whether the account actually exists (matches Supabase's own anti-enumeration response shape, verified empirically — see below).
+- New `src/pages/ResetPassword.tsx` + route `/reset-password`: new-password form, same expired/invalid-link handling pattern as the existing `VerifyEmail.tsx` (`error_code=otp_expired` etc.).
+- `validation.ts`: `ForgotPasswordSchema`, `ResetPasswordSchema` (mirrors `ChangePasswordSchema`'s match-confirmation shape).
+
+**Known, documented scope decision (not a silent gap):** `/reset-password` sits behind the same `ProtectedRoute` as every other authenticated page, gated only on "has a session" — it does not additionally verify the session specifically came from a recovery link (vs. any other already-open session). An attacker already holding a live session could reach this form without re-proving the current password. Accepted for this audit's scope: such an attacker could already do comparably sensitive things with that session; building session-type tracking into the shared `AuthProvider` to close this narrow gap is a larger change than this fix warrants. Flagged here explicitly rather than treated as fully closed.
+
+**Verified:** real `resetPasswordForEmail()` call against production for both a real confirmed account and a nonexistent one — confirmed identical `error: null` response either way (no enumeration leak), matching the UI's own deliberately-identical messaging.
+
+**Outstanding manual step, cannot be verified from here:** Supabase Dashboard → Authentication → URL Configuration → Redirect URLs must include `https://<production-domain>/reset-password` or the emailed link will fail on click, same consideration as the existing `/verify-email` redirect. Flagging for the project owner to confirm, same as this project's established convention for this exact class of setting.
+
+### Fix #1 detail (AUTH-03 / AUTH-04 / AUTH-11)
+
+**Root cause:** `useAuth.tsx`'s `signUp()` never inspected `data.user.identities` — Supabase's documented anti-enumeration signal (`identities: []` + `error: null` + a fabricated, never-persisted user id) for "this email is already registered and confirmed." The code proceeded as if it were a real signup.
+**Fix:** detect `data.user.identities.length === 0` immediately after the `signUp()` call and throw a clear "already exists, try signing in" error before attempting the (doomed-to-fail) profile insert. Also improved the adjacent "Email not confirmed" login error message.
+**Files:** `src/hooks/useAuth.tsx`, `src/pages/Login.tsx` (+ tests).
+**Verified:** empirically against production before writing the fix (see AUTH-01 through AUTH-08 above); the added unit test exercises the real `signUp()` function with a mock shaped exactly like the confirmed real Supabase response.
+**AUTH-11 status:** now expected resolved as a direct consequence — no independent fix needed, will re-confirm if the user reports it again post-deploy.
 
 ---
 

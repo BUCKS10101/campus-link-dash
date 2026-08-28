@@ -58,6 +58,25 @@ export const ChangePasswordSchema = z
   })
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>
 
+export const ForgotPasswordSchema = z.object({
+  email: VITStudentEmailSchema,
+})
+export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>
+
+export const ResetPasswordSchema = z
+  .object({
+    newPassword: z
+      .string()
+      .min(8, 'Password must be at least 8 characters')
+      .max(72, 'Password must be under 72 characters'),
+    confirmPassword: z.string().min(1, 'Please confirm your new password'),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  })
+export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>
+
 // ---------- Orders ----------
 
 export const PostOrderSchema = z.object({

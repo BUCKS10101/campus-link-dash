@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { Profile } from '@/lib/database-types'
-import { SignupSchema, LoginSchema, ProfileUpdateSchema, ChangePasswordSchema, validateOrThrow } from '@/lib/validation'
+import { SignupSchema, LoginSchema, ProfileUpdateSchema, ChangePasswordSchema, ForgotPasswordSchema, ResetPasswordSchema, validateOrThrow } from '@/lib/validation'
 
 export interface AuthUser {
   user: User
@@ -27,6 +27,8 @@ interface AuthContextValue {
   signOut: () => Promise<void>
   updateProfile: (updates: Partial<Profile>) => Promise<void>
   changePassword: (currentPassword: string, newPassword: string, confirmPassword: string) => Promise<void>
+  sendPasswordResetEmail: (email: string) => Promise<void>
+  updatePasswordAfterReset: (newPassword: string, confirmPassword: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -235,8 +237,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw error
   }
 
+  // QA audit AUTH-09: no forgot-password flow existed anywhere in the app
+  // (confirmed by full-repo search). Rides entirely on Supabase's own
+  // recovery-email mechanism, same "no custom token system" discipline
+  // as 3J's email verification - resetPasswordForEmail() sends a link
+  // that, once clicked, gives the browser a real (if recovery-scoped)
+  // session via Supabase's own detectSessionInUrl handling; this call
+  // itself never reveals whether the email exists (Supabase's response
+  // shape is deliberately the same either way, mirroring signUp()'s own
+  // anti-enumeration behavior - see the signUp() comment above).
+  const sendPasswordResetEmail = async (email: string) => {
+    const validated = validateOrThrow(ForgotPasswordSchema, { email })
+    const { error } = await supabase.auth.resetPasswordForEmail(validated.email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    })
+    if (error) throw error
+  }
+
+  // Called from the /reset-password page, which is only reachable with a
+  // real (recovery) session already established by Supabase's own
+  // detectSessionInUrl handling of the emailed link - no separate
+  // "current password" re-proof is needed or possible here (that's
+  // exactly the case a forgotten password can't satisfy), unlike
+  // changePassword() above which requires it.
+  const updatePasswordAfterReset = async (newPassword: string, confirmPassword: string) => {
+    const validated = validateOrThrow(ResetPasswordSchema, { newPassword, confirmPassword })
+    const { error } = await supabase.auth.updateUser({ password: validated.newPassword })
+    if (error) throw error
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut, updateProfile, changePassword }}>
+    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut, updateProfile, changePassword, sendPasswordResetEmail, updatePasswordAfterReset }}>
       {children}
     </AuthContext.Provider>
   )

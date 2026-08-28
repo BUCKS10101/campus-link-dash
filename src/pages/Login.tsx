@@ -21,10 +21,11 @@ const fieldInputClass =
 const Login = () => {
   const navigate = useNavigate()
   const { toast } = useToast()
-  const { user, signUp, signIn } = useAuth()
-  const [step, setStep] = useState<'login' | 'register'>('login')
+  const { user, signUp, signIn, sendPasswordResetEmail } = useAuth()
+  const [step, setStep] = useState<'login' | 'register' | 'forgot'>('login')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [resetEmailSent, setResetEmailSent] = useState(false)
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -113,10 +114,45 @@ const Login = () => {
     }
   }
 
+  const handleForgotPassword = async () => {
+    if (!formData.email) {
+      toast({
+        title: "Missing information",
+        description: "Enter your email to get a reset link.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setLoading(true)
+    try {
+      await sendPasswordResetEmail(formData.email)
+      // Deliberately the same message regardless of whether the email is
+      // actually registered - Supabase's own resetPasswordForEmail()
+      // never reveals that either way, same anti-enumeration reasoning
+      // as signUp() (see useAuth.tsx).
+      setResetEmailSent(true)
+    } catch (error) {
+      toast({
+        title: "Couldn't send reset link",
+        description: getErrorMessage(error, "Please try again."),
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (step === 'login') void handleLogin()
-    else void handleRegister()
+    else if (step === 'register') void handleRegister()
+    else void handleForgotPassword()
+  }
+
+  const switchStep = (next: 'login' | 'register' | 'forgot') => {
+    setStep(next)
+    setResetEmailSent(false)
   }
 
   return (
@@ -154,17 +190,36 @@ const Login = () => {
             </div>
 
             <Text variant="label" tone="faint" as="div" className="mb-3">
-              {step === 'login' ? 'Sign in' : 'Register'}
+              {step === 'login' ? 'Sign in' : step === 'register' ? 'Register' : 'Reset password'}
             </Text>
             <Text variant="h1" as="h1">
-              {step === 'login' ? 'Welcome back' : 'Join CampusLink'}
+              {step === 'login' ? 'Welcome back' : step === 'register' ? 'Join CampusLink' : 'Forgot your password?'}
             </Text>
             <Text variant="bodySm" tone="muted" as="p" className="mt-2">
               {step === 'login'
                 ? 'Sign in with your credentials.'
-                : 'Register with your VIT student details.'}
+                : step === 'register'
+                ? 'Register with your VIT student details.'
+                : resetEmailSent
+                ? `If an account exists for ${formData.email}, a reset link is on its way.`
+                : "Enter your email and we'll send you a link to reset it."}
             </Text>
 
+            {step === 'forgot' && resetEmailSent ? (
+              <div className="mt-10">
+                <Rule />
+                <div className="flex items-center justify-between pt-5">
+                  <Text variant="caption" tone="faint">Check your inbox.</Text>
+                  <button
+                    type="button"
+                    onClick={() => switchStep('login')}
+                    className="font-body text-body-sm font-medium text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  >
+                    Back to sign in
+                  </button>
+                </div>
+              </div>
+            ) : (
             <form onSubmit={handleSubmit} className="mt-10 flex flex-col gap-6" noValidate>
               {step === 'register' && (
                 <div className="flex flex-col gap-2">
@@ -215,31 +270,44 @@ const Login = () => {
                 </div>
               )}
 
-              <div className="flex flex-col gap-2">
-                <Text as="label" variant="label" tone="faint" htmlFor="password">Password</Text>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder={step === 'register' ? 'Create a password' : 'Enter your password'}
-                    value={formData.password}
-                    onChange={(e) => handleInputChange('password', e.target.value)}
-                    className={cn(fieldInputClass, 'pr-14')}
-                    autoComplete={step === 'register' ? 'new-password' : 'current-password'}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute inset-y-0 right-0 font-data text-caption font-medium uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                  >
-                    {showPassword ? 'Hide' : 'Show'}
-                  </button>
+              {step !== 'forgot' && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-baseline justify-between">
+                    <Text as="label" variant="label" tone="faint" htmlFor="password">Password</Text>
+                    {step === 'login' && (
+                      <button
+                        type="button"
+                        onClick={() => switchStep('forgot')}
+                        className="font-body text-caption font-medium text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      >
+                        Forgot password?
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder={step === 'register' ? 'Create a password' : 'Enter your password'}
+                      value={formData.password}
+                      onChange={(e) => handleInputChange('password', e.target.value)}
+                      className={cn(fieldInputClass, 'pr-14')}
+                      autoComplete={step === 'register' ? 'new-password' : 'current-password'}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute inset-y-0 right-0 font-data text-caption font-medium uppercase tracking-[0.1em] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    >
+                      {showPassword ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="mt-3 flex flex-col gap-3">
                 <Button type="submit" loading={loading} className="w-full">
-                  {step === 'login' ? 'Sign in' : 'Create account'}
+                  {step === 'login' ? 'Sign in' : step === 'register' ? 'Create account' : 'Send reset link'}
                 </Button>
                 <div
                   className={cn(
@@ -249,26 +317,45 @@ const Login = () => {
                   role="status"
                   aria-live="polite"
                 >
-                  {loading ? (step === 'login' ? 'Checking your details…' : 'Setting up your account…') : ''}
+                  {loading ? (step === 'login' ? 'Checking your details…' : step === 'register' ? 'Setting up your account…' : 'Sending reset link…') : ''}
                 </div>
               </div>
             </form>
+            )}
 
-            <div className="mt-10 w-full">
-              <Rule />
-              <div className="flex items-center justify-between pt-5">
-                <Text variant="caption" tone="faint">
-                  {step === 'login' ? 'New here?' : 'Already registered?'}
-                </Text>
-                <button
-                  type="button"
-                  onClick={() => setStep(step === 'login' ? 'register' : 'login')}
-                  className="font-body text-body-sm font-medium text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                >
-                  {step === 'login' ? 'Register' : 'Sign in'}
-                </button>
+            {(step === 'login' || step === 'register') && (
+              <div className="mt-10 w-full">
+                <Rule />
+                <div className="flex items-center justify-between pt-5">
+                  <Text variant="caption" tone="faint">
+                    {step === 'login' ? 'New here?' : 'Already registered?'}
+                  </Text>
+                  <button
+                    type="button"
+                    onClick={() => switchStep(step === 'login' ? 'register' : 'login')}
+                    className="font-body text-body-sm font-medium text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  >
+                    {step === 'login' ? 'Register' : 'Sign in'}
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+
+            {step === 'forgot' && !resetEmailSent && (
+              <div className="mt-10 w-full">
+                <Rule />
+                <div className="flex items-center justify-between pt-5">
+                  <Text variant="caption" tone="faint">Remembered it?</Text>
+                  <button
+                    type="button"
+                    onClick={() => switchStep('login')}
+                    className="font-body text-body-sm font-medium text-primary-deep underline underline-offset-4 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  >
+                    Back to sign in
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
