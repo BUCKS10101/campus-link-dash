@@ -134,6 +134,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (error) throw error
 
+    // Supabase's own anti-enumeration behavior: signUp() on an email that
+    // already belongs to a CONFIRMED account returns error: null and a
+    // fabricated user object (a fresh random id, never actually persisted
+    // to auth.users) with an empty identities array - it deliberately
+    // looks like success so an attacker can't use the signup form to
+    // discover which emails are registered. Confirmed empirically against
+    // production (2026-08-29 QA audit, AUTH-03): zero duplicate rows are
+    // ever created, but without this check the caller has no way to tell
+    // this apart from a real new signup - it would go on to attempt a
+    // profiles insert with that fake id (which fails on the
+    // profiles->auth.users FK, silently, console-only) and then report
+    // "Account created" to someone who already has a working account with
+    // an unrelated, unchanged password.
+    if (data.user && data.user.identities && data.user.identities.length === 0) {
+      throw new Error('An account with this email already exists. Try signing in instead.')
+    }
+
     // Create profile. is_deliverer/total_deliveries/friend_count/avatar_url
     // don't exist on the live profiles table - anyone can be a deliverer
     // for someone else's order regardless of any flag (matches the orders

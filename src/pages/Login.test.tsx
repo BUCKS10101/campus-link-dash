@@ -68,6 +68,18 @@ describe('Login', () => {
     )
   })
 
+  it('shows a specific, actionable message for an unconfirmed account, not the raw Supabase text', async () => {
+    mockSignIn.mockRejectedValue(new Error('Email not confirmed'))
+    renderLogin()
+
+    await fillLogin('a@vitstudent.ac.in', 'password123')
+    await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
+
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ description: expect.stringMatching(/verify your email/i) })
+    ))
+  })
+
   it('leaves the loading state and stays interactive when sign-in rejects unexpectedly', async () => {
     mockSignIn.mockRejectedValue(new Error('Network request failed'))
     renderLogin()

@@ -65,11 +65,13 @@ const Login = () => {
       toast({ title: "Welcome back" })
     } catch (error) {
       const message = getErrorMessage(error, "Please try again.")
+      const friendlyMessage =
+        message === 'Invalid login credentials' ? "That email and password don't match."
+        : message === 'Email not confirmed' ? "Verify your email before signing in - check your inbox for the confirmation link."
+        : message
       toast({
         title: "That didn't work",
-        description: message === 'Invalid login credentials'
-          ? "That email and password don't match."
-          : message,
+        description: friendlyMessage,
         variant: "destructive"
       })
     } finally {

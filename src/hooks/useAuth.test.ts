@@ -224,6 +224,49 @@ describe('signUp', () => {
 
     expect(supabaseMock.auth.signUp).not.toHaveBeenCalled()
   })
+
+  it('detects Supabase\'s "already registered" signal (empty identities array) and throws a clear error instead of a false success', async () => {
+    // Supabase's real anti-enumeration response shape for signUp() on an
+    // already-confirmed email: error is null, but the returned user is a
+    // fabricated object (never persisted) with an empty identities array -
+    // confirmed empirically against production, QA audit AUTH-03.
+    supabaseMock.auth.signUp.mockResolvedValue({
+      data: { user: { id: 'fabricated-id', identities: [] }, session: null },
+      error: null,
+    })
+    const builder = createQueryBuilder({ data: null, error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await expect(
+      act(async () => {
+        await result.current.signUp('already-registered@vitstudent.ac.in', 'password123', { fullName: 'Jane Doe', phone: '9876543210' })
+      })
+    ).rejects.toThrow(/already exists/i)
+
+    // Must not attempt to insert a profile row for the fabricated id - it
+    // was never actually created in auth.users, so the insert would just
+    // fail on the FK constraint (silently, console-only) if attempted.
+    expect(builder.insert).not.toHaveBeenCalled()
+  })
+
+  it('still succeeds normally for a real new signup with a non-empty identities array', async () => {
+    supabaseMock.auth.signUp.mockResolvedValue({
+      data: { user: { id: 'user-1', identities: [{ provider: 'email' }] }, session: null },
+      error: null,
+    })
+    const builder = createQueryBuilder({ data: null, error: null })
+    supabaseMock.from.mockReturnValue(builder)
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await act(async () => {
+      await result.current.signUp('genuinely-new@vitstudent.ac.in', 'password123', { fullName: 'Jane Doe', phone: '9876543210' })
+    })
+
+    expect(builder.insert).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('signIn', () => {
