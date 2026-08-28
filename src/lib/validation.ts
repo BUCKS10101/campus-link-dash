@@ -10,9 +10,7 @@ const VITStudentEmailSchema = z
   .trim()
   .min(1, 'Email is required')
   .email('Enter a valid email address')
-  // TEMP-DISABLED for Resend/production email-delivery testing - REVERT BY
-  // UNCOMMENTING THIS LINE (src/lib/validation.ts:14) before real launch.
-  // .refine((value) => VIT_EMAIL.test(value), 'Must use a VIT student email ending in @vitstudent.ac.in')
+  .refine((value) => VIT_EMAIL.test(value), 'Must use a VIT student email ending in @vitstudent.ac.in')
 
 export const LoginSchema = z.object({
   email: VITStudentEmailSchema,
