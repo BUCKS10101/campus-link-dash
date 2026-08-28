@@ -13,6 +13,7 @@ const supabaseMock = {
     signInWithPassword: vi.fn(),
     signOut: vi.fn(),
     updateUser: vi.fn(),
+    resetPasswordForEmail: vi.fn(),
   },
 }
 
@@ -333,6 +334,71 @@ describe('signIn', () => {
       email: 'jane@vitstudent.ac.in',
       password: 'password123',
     })
+  })
+})
+
+describe('sendPasswordResetEmail', () => {
+  it('rejects an invalid email before ever calling Supabase', async () => {
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await expect(
+      act(async () => {
+        await result.current.sendPasswordResetEmail('not-an-email')
+      })
+    ).rejects.toThrow()
+
+    expect(supabaseMock.auth.resetPasswordForEmail).not.toHaveBeenCalled()
+  })
+
+  it('calls Supabase with a redirectTo pointing at /reset-password', async () => {
+    supabaseMock.auth.resetPasswordForEmail.mockResolvedValue({ data: {}, error: null })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await act(async () => {
+      await result.current.sendPasswordResetEmail('jane@vitstudent.ac.in')
+    })
+
+    expect(supabaseMock.auth.resetPasswordForEmail).toHaveBeenCalledWith(
+      'jane@vitstudent.ac.in',
+      expect.objectContaining({ redirectTo: expect.stringContaining('/reset-password') })
+    )
+  })
+
+  it('propagates a Supabase error', async () => {
+    supabaseMock.auth.resetPasswordForEmail.mockResolvedValue({ data: null, error: { message: 'Rate limited' } })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await expect(
+      act(async () => {
+        await result.current.sendPasswordResetEmail('jane@vitstudent.ac.in')
+      })
+    ).rejects.toBeTruthy()
+  })
+})
+
+describe('updatePasswordAfterReset', () => {
+  it('rejects a mismatched confirmation before calling Supabase', async () => {
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await expect(
+      act(async () => {
+        await result.current.updatePasswordAfterReset('newPassword123', 'different456')
+      })
+    ).rejects.toThrow()
+
+    expect(supabaseMock.auth.updateUser).not.toHaveBeenCalled()
+  })
+
+  it('does not require a current-password reproof, unlike changePassword', async () => {
+    supabaseMock.auth.updateUser.mockResolvedValue({ data: {}, error: null })
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await act(async () => {
+      await result.current.updatePasswordAfterReset('newPassword123', 'newPassword123')
+    })
+
+    expect(supabaseMock.auth.signInWithPassword).not.toHaveBeenCalled()
+    expect(supabaseMock.auth.updateUser).toHaveBeenCalledWith({ password: 'newPassword123' })
   })
 })
 

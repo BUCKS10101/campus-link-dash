@@ -16,6 +16,7 @@ vi.mock('react-router-dom', async () => {
 
 const mockSignIn = vi.fn()
 const mockSignUp = vi.fn()
+const mockSendPasswordResetEmail = vi.fn()
 const mockUseAuth = vi.fn()
 vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => mockUseAuth(),
@@ -32,7 +33,7 @@ const fillLogin = async (email: string, password: string) => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockUseAuth.mockReturnValue({ user: null, signIn: mockSignIn, signUp: mockSignUp })
+  mockUseAuth.mockReturnValue({ user: null, signIn: mockSignIn, signUp: mockSignUp, sendPasswordResetEmail: mockSendPasswordResetEmail })
 })
 
 describe('Login', () => {
@@ -144,6 +145,54 @@ describe('Login', () => {
       mockUseAuth.mockReturnValue({ user: { user: { id: 'u1' } }, signIn: mockSignIn, signUp: mockSignUp })
       rerender(<MemoryRouter><Login /></MemoryRouter>)
       expect(mockNavigate).toHaveBeenCalledWith('/')
+    })
+  })
+
+  describe('forgot password (QA audit AUTH-09)', () => {
+    it('is reachable from the sign-in screen', async () => {
+      renderLogin()
+      expect(screen.getByRole('button', { name: /forgot password\?/i })).toBeInTheDocument()
+    })
+
+    it('switches to a single-email form, hiding the password field', async () => {
+      renderLogin()
+      await userEvent.click(screen.getByRole('button', { name: /forgot password\?/i }))
+
+      expect(screen.getByText(/forgot your password/i)).toBeInTheDocument()
+      expect(screen.queryByLabelText(/password/i)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /send reset link/i })).toBeInTheDocument()
+    })
+
+    it('sends the reset email and shows the same confirmation regardless of whether the account exists', async () => {
+      mockSendPasswordResetEmail.mockResolvedValue(undefined)
+      renderLogin()
+      await userEvent.click(screen.getByRole('button', { name: /forgot password\?/i }))
+      await userEvent.type(screen.getByLabelText(/email/i), 'jane@vitstudent.ac.in')
+      await userEvent.click(screen.getByRole('button', { name: /send reset link/i }))
+
+      await waitFor(() => expect(mockSendPasswordResetEmail).toHaveBeenCalledWith('jane@vitstudent.ac.in'))
+      expect(await screen.findByText(/reset link is on its way/i)).toBeInTheDocument()
+    })
+
+    it('surfaces a real send failure as a destructive toast', async () => {
+      mockSendPasswordResetEmail.mockRejectedValue(new Error('Rate limited'))
+      renderLogin()
+      await userEvent.click(screen.getByRole('button', { name: /forgot password\?/i }))
+      await userEvent.type(screen.getByLabelText(/email/i), 'jane@vitstudent.ac.in')
+      await userEvent.click(screen.getByRole('button', { name: /send reset link/i }))
+
+      await waitFor(() => expect(mockToast).toHaveBeenCalledWith(
+        expect.objectContaining({ title: expect.stringMatching(/couldn.t send reset link/i), variant: 'destructive' })
+      ))
+    })
+
+    it('returns to the sign-in form via "Back to sign in"', async () => {
+      renderLogin()
+      await userEvent.click(screen.getByRole('button', { name: /forgot password\?/i }))
+      await userEvent.click(screen.getByRole('button', { name: /back to sign in/i }))
+
+      expect(screen.getByRole('button', { name: /^sign in$/i })).toBeInTheDocument()
+      expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
     })
   })
 })
