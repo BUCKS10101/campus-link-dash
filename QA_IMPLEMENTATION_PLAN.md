@@ -77,9 +77,39 @@ Legend: **PASS** / **FAIL** / **PENDING** (not yet executed this pass).
 | UX-05 | Avatar persists across "logout/login" | Fresh client + fresh sign-in, re-fetch profile | Same `avatar_url` | Confirmed: survives a fresh sign-in | PASS |
 | UX-06 | **Environment parity** | Compare staging vs production schema | Both environments should have the same schema | **FAIL initially** — `profiles.avatar_url` and the `avatars` bucket existed only on production. **Fixed**: migration applied to staging too, re-verified. | Fixed this pass |
 
-### Phases 7, 9-13
+### Phases 7 (chat/text), 9 (distance), 10 (notifications), 11 (friends), 12 (activity), 13 (security)
 
-**Not yet executed this pass** — continuing next in this same session. Tracked as open work, not silently dropped.
+All executed together as one real, live scenario on staging: two real confirmed accounts (requester A, deliverer B) plus a third stranger account, a real order posted and accepted, real chat messages, real friend request/accept, real notification checks, real cross-user isolation probes — 22/22 checks, all real API/DB calls, not code reading.
+
+| ID | Test | Result | Detail |
+|---|---|---|---|
+| CHAT-01 | Normal message with emoji sends | PASS | — |
+| CHAT-02 | Direct API bypass: >1000 char message | **FAIL → FIXED** | Accepted server-side, client-Zod-only. Fixed with a CHECK constraint (see Fix #4 below). |
+| CHAT-03 | Direct API bypass: empty message | **FAIL → FIXED** | Same fix as CHAT-02. |
+| CHAT-04 | Non-participant cannot send on an order they're not part of | PASS | RLS correctly rejects |
+| CHAT-05 / SEC | Non-participant cannot read that order's chat history | PASS | 0 rows visible |
+| NOTIF-01 | `order_accepted` notification created for the requester | PASS | — |
+| NOTIF-02 | `new_chat_message` notification created for the recipient | PASS | — |
+| NOTIF-03 / SEC | Stranger sees zero notifications for an unrelated order | PASS | — |
+| NOTIF-04 | Owner can mark their own notification read | PASS | — |
+| NOTIF-05 / SEC | A different user cannot mark someone else's notification read | PASS | RLS makes it a silent no-op |
+| FRIEND-01 | Send friend request | PASS | — |
+| FRIEND-02 | Self-friend-request rejected | PASS | — |
+| FRIEND-03 | Duplicate pending request rejected | PASS | — |
+| FRIEND-04 | Accept friend request | PASS | — |
+| FRIEND-05 | Friendship status correctly `accepted` in DB | PASS | — |
+| FRIEND-06 / SEC | Stranger cannot read A/B's friendship row | PASS | — |
+| ACT-01 | Order shows correctly in requester's own view | PASS | — |
+| ACT-02 | Order shows correctly in deliverer's own view | PASS | — |
+| ACT-03 / SEC | Stranger cannot see a non-pending order via participant-scoped query | PASS | — |
+| ACT-04 / SEC | Direct status jump to `delivered` (bypassing OTP) is blocked | PASS | `enforce_order_status_transition()` correctly rejects it |
+| DIST-01 | `haversine_km()` matches an independently-computed formula | PASS | DB: `0.191499562911171` vs independently computed `0.19149956291117137` — effectively identical |
+
+**Fix #4 detail (CHAT-02/CHAT-03):** see the dedicated commit `523713e` — added `chat_messages_message_length_check` (1-1000 chars after trim), applied and verified on staging first, then production. No frontend change needed (client validation was already correct; this closes the server-side gap behind it).
+
+**Distance analysis (Phase 9):** the one function checked directly (`haversine_km`) matches an independent calculation to 10 decimal places. `compute_order_distance`/`compute_walking_route` (the pgRouting-based real-route functions) were extensively built and verified during the original Phase 3A work (including two dedicated bugfix migrations for a "0 rows = 0km" bug and a fragmented path graph) — not re-derived from scratch this pass, but flagged as available for deeper re-verification if desired.
+
+**Not covered by this real-data pass, needs a live browser (structural limitation, not skipped silently):** actual map rendering, marker interaction, mobile touch behavior, geolocation permission prompts (Phase 8).
 
 ### Phase 6 — Posting / rate limiting
 
@@ -108,7 +138,9 @@ Reported at the end of email-flow testing, not yet — see §2 above for current
 | Fix # | Issue | Branch | Commit | Merged to main | Regression checked |
 |---|---|---|---|---|---|
 | 1 | AUTH-03/AUTH-04/AUTH-11 — duplicate-registration false success | `qa/auth-duplicate-signup` | `e8660fa` | ✅ merged | 581 tests, 579 pass (2 pre-existing unrelated failures), tsc/lint/build clean |
-| 2 | AUTH-09 — missing forgot-password flow | `qa/auth-forgot-password` | pending merge | pending | 599 tests, 597 pass (same 2 pre-existing unrelated failures), tsc/lint/build clean |
+| 2 | AUTH-09 — missing forgot-password flow | `qa/auth-forgot-password` | `b1bf579` | ✅ merged | 599 tests, 597 pass (same 2 pre-existing unrelated failures), tsc/lint/build clean |
+| 3 | Phase 3-5 — avatar migration missing on staging | (direct DB fix, no code branch) | `f0211a4` (docs) | ✅ applied to staging | Re-verified end-to-end with a real account |
+| 4 | CHAT-02/CHAT-03 — chat message length/emptiness only client-enforced | `qa/chat-message-length-validation` | `523713e` | ✅ merged | 599 tests, 597 pass (same 2 pre-existing unrelated failures), tsc/lint/build clean; 5/5 real behavioral checks on staging before applying to production |
 
 ### Fix #2 detail (AUTH-09)
 
