@@ -47,11 +47,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const fetchUserProfile = async (authUser: User) => {
       fetchedForUserId = authUser.id
       try {
-        const { data: profile, error } = await supabase
+        let { data: profile, error } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', authUser.id)
           .single()
+
+        // Self-heal a missing profile row (PGRST116 = no row found), rather
+        // than just logging it and leaving the account permanently broken.
+        // Root cause: signUp()'s own profile insert (below) runs
+        // IMMEDIATELY after supabase.auth.signUp() returns - but when
+        // Confirm Email is on (as it now is on production), signUp() does
+        // NOT return a live session, so that insert executes unauthenticated
+        // and profiles_insert_own's `auth.uid() = id` RLS check silently
+        // rejects it (caught only by console.error, never surfaced or
+        // retried). This is the first point afterward where a REAL session
+        // definitely exists (fetchUserProfile only ever runs from
+        // onAuthStateChange with an actual session) - auth.uid() correctly
+        // resolves here, so the same insert that failed at signup time will
+        // succeed now. Uses signUp()'s own metadata (full_name/phone,
+        // already stored on the auth user regardless of whether the
+        // profile insert succeeded) so no data is lost - the user never
+        // re-enters anything.
+        if (error && error.code === 'PGRST116') {
+          const metadata = authUser.user_metadata as { full_name?: string; phone?: string } | null
+          const { data: created, error: createError } = await supabase
+            .from('profiles')
+            .insert([{
+              id: authUser.id,
+              name: metadata?.full_name || authUser.email?.split('@')[0] || 'CampusLink user',
+              email: authUser.email || '',
+              phone: metadata?.phone || null,
+            }])
+            .select('*')
+            .single()
+
+          if (createError) {
+            console.error('Error self-healing missing profile:', createError)
+          } else {
+            profile = created
+            error = null
+          }
+        }
 
         if (error && error.code !== 'PGRST116') {
           console.error('Error fetching profile:', error)

@@ -131,6 +131,87 @@ describe('AuthProvider session hydration', () => {
     expect(supabaseMock.auth.onAuthStateChange).toHaveBeenCalledTimes(2)
     expect(supabaseMock.from).toHaveBeenCalledTimes(2)
   })
+
+  describe('missing-profile self-heal (production incident, 2026-08-29)', () => {
+    // Root cause: when Confirm Email is on, signUp()'s own profile insert
+    // runs with no live session (signUp() doesn't return one until the
+    // link is clicked), so profiles_insert_own's RLS check silently
+    // rejects it - every real signup ended up with a session but no
+    // profile row, breaking anything that reads or FK-references
+    // profiles (posting, rate limiting, etc). fetchUserProfile now
+    // retries the insert here, where a real session (and therefore a
+    // correctly-resolving auth.uid()) is guaranteed to exist.
+    it('creates the profile from signup metadata when none exists yet (PGRST116)', async () => {
+      const selectBuilder = createQueryBuilder({ data: null, error: { code: 'PGRST116' } })
+      const insertBuilder = createQueryBuilder({
+        data: { id: 'user-1', name: 'Jane Doe', email: 'jane@vitstudent.ac.in', phone: '9876543210' },
+        error: null,
+      })
+      supabaseMock.from
+        .mockReturnValueOnce(selectBuilder)
+        .mockReturnValueOnce(insertBuilder)
+
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => emitAuthChange('SIGNED_IN', {
+        user: { id: 'user-1', email: 'jane@vitstudent.ac.in', user_metadata: { full_name: 'Jane Doe', phone: '9876543210' } },
+      }))
+
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(insertBuilder.insert).toHaveBeenCalledWith([{
+        id: 'user-1', name: 'Jane Doe', email: 'jane@vitstudent.ac.in', phone: '9876543210',
+      }])
+      expect(result.current.user?.profile).toEqual({
+        id: 'user-1', name: 'Jane Doe', email: 'jane@vitstudent.ac.in', phone: '9876543210',
+      })
+    })
+
+    it('falls back to the email prefix as a name when signup metadata is missing entirely', async () => {
+      const selectBuilder = createQueryBuilder({ data: null, error: { code: 'PGRST116' } })
+      const insertBuilder = createQueryBuilder({ data: { id: 'user-1', name: 'oldaccount' }, error: null })
+      supabaseMock.from
+        .mockReturnValueOnce(selectBuilder)
+        .mockReturnValueOnce(insertBuilder)
+
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => emitAuthChange('SIGNED_IN', { user: { id: 'user-1', email: 'oldaccount@vitstudent.ac.in', user_metadata: {} } }))
+
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(insertBuilder.insert).toHaveBeenCalledWith([{
+        id: 'user-1', name: 'oldaccount', email: 'oldaccount@vitstudent.ac.in', phone: null,
+      }])
+    })
+
+    it('does not attempt to self-heal when the profile fetch fails for a different reason', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const selectBuilder = createQueryBuilder({ data: null, error: { code: 'OTHER_ERROR', message: 'network error' } })
+      supabaseMock.from.mockReturnValueOnce(selectBuilder)
+
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => emitAuthChange('SIGNED_IN', { user: { id: 'user-1', email: 'jane@vitstudent.ac.in' } }))
+
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(supabaseMock.from).toHaveBeenCalledTimes(1) // select only, no insert attempt
+      expect(result.current.user?.profile).toBeNull()
+      consoleError.mockRestore()
+    })
+
+    it('logs but does not crash if the self-heal insert itself fails', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const selectBuilder = createQueryBuilder({ data: null, error: { code: 'PGRST116' } })
+      const insertBuilder = createQueryBuilder({ data: null, error: { message: 'still blocked' } })
+      supabaseMock.from
+        .mockReturnValueOnce(selectBuilder)
+        .mockReturnValueOnce(insertBuilder)
+
+      const { result } = renderHook(() => useAuth(), { wrapper })
+      act(() => emitAuthChange('SIGNED_IN', { user: { id: 'user-1', email: 'jane@vitstudent.ac.in' } }))
+
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(result.current.user?.profile).toBeNull()
+      expect(consoleError).toHaveBeenCalledWith('Error self-healing missing profile:', { message: 'still blocked' })
+      consoleError.mockRestore()
+    })
+  })
 })
 
 // Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2. emailVerified is a
