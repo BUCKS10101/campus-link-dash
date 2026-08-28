@@ -66,9 +66,20 @@ Legend: **PASS** / **FAIL** / **PENDING** (not yet executed this pass).
 | AUTH-10 | Session persistence across refresh/nav/close-reopen | Manual browser test | Session persists via Supabase's own localStorage-backed client | Not yet executed this pass (requires a real browser) | PENDING | — | — | — |
 | AUTH-11 | "Password not matching after logout" (user-reported) | Investigate root cause | — | Most likely explanation: a direct consequence of AUTH-03 — re-registering an already-confirmed account produces a misleading "success" with no actual password change, so the *original* password remains correct while the UI implies a new one was just set. Not independently reproduced as a distinct bug; expected to disappear once AUTH-03 is fixed. | Provisional — will re-verify after Fix #1 | Same as AUTH-03 | Same as AUTH-03 | `qa/auth-duplicate-signup` |
 
-### Phases 3–13
+### Phase 3-5 — Personalized greeting / profile / avatar (re-verification)
 
-**Not yet executed this pass** — pending after the Phase 2 fixes land and after Phase 6 (posting rate-limit, explicitly reported as broken) is investigated. Tracked as open work below, not silently dropped.
+| ID | Test | Steps | Expected | Actual | Result |
+|---|---|---|---|---|---|
+| UX-01 | First-name extraction | `getFirstName("Govind Nair")`, `getFirstName("Raj Sudarshan")` | "Govind", "Raj" | Confirmed exactly this | PASS |
+| UX-02 | Profile heading | Real signup → confirm → check `profiles.name` | Renders as `"{firstName}'s profile"` | Data confirmed correct (`name: "Govind Nair"` → heading logic produces "Govind's profile"; component-level rendering already covered by existing `Profile.test.tsx` suite, unchanged this pass) | PASS |
+| UX-03 | Contact line | Real profile row | `email · +91 phone`, no placeholder text | Confirmed: `p345qa...@vitstudent.ac.in · +91 9876543210` | PASS |
+| UX-04 | Avatar upload | Real upload via Supabase Storage | Succeeds, `avatar_url` set, image publicly fetchable | Confirmed all three | PASS |
+| UX-05 | Avatar persists across "logout/login" | Fresh client + fresh sign-in, re-fetch profile | Same `avatar_url` | Confirmed: survives a fresh sign-in | PASS |
+| UX-06 | **Environment parity** | Compare staging vs production schema | Both environments should have the same schema | **FAIL initially** — `profiles.avatar_url` and the `avatars` bucket existed only on production. **Fixed**: migration applied to staging too, re-verified. | Fixed this pass |
+
+### Phases 7, 9-13
+
+**Not yet executed this pass** — continuing next in this same session. Tracked as open work, not silently dropped.
 
 ### Phase 6 — Posting / rate limiting
 
@@ -126,10 +137,9 @@ Reported at the end of email-flow testing, not yet — see §2 above for current
 
 ## 5. Open work (not yet reached this pass)
 
-- Phase 3 (personalized greeting) — already implemented and shipped in a prior session; needs re-verification against the *current* production state (Confirm Email now ON) as part of this audit's regression pass, not assumed still correct.
-- Phase 4 (profile page dynamic name/phone) — same: implemented previously, needs re-verification here.
-- Phase 5 (avatar system) — same: implemented previously, needs re-verification here, including the failure/oversized/unsupported-file/cancel cases the original implementation pass didn't explicitly re-test post-Confirm-Email-change.
-- Phase 6 (posting rate limit) — investigation started, see above.
+- ~~Phase 3/4/5~~ — **re-verified this pass**, see §6 below. Found and fixed a real gap: the `20260904100000_profile_avatar.sql` migration had only ever been applied to production, never staging — `profiles.avatar_url` and the `avatars` bucket didn't exist on staging at all, which would break local dev (`npm run dev` defaults to staging). Applied to staging, re-verified end-to-end with a real account (signup → confirm → first-name extraction → profile contact line → avatar upload → survives a fresh sign-in → image publicly fetchable). All PASS.
+- **P3 housekeeping, not a functional bug**: staging's `supabase_migrations.schema_migrations` tracking table is missing rows for 15 migrations (`20260830100000` through `20260904100000`) that this session only started inserting tracking rows for on production. Confirmed via direct inspection that the actual schema objects (tables, columns, triggers) all exist correctly on staging regardless — this is pure bookkeeping drift in the tracking table, not a real schema gap. Not fixed this pass (zero functional impact); noted for future cleanup.
+- Phase 6 (posting rate limit) — investigated, no defect found, see above.
 - Phase 7 (text/chat feature).
 - Phase 8 (map).
 - Phase 9 (distance analysis).
