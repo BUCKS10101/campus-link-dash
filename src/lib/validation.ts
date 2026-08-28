@@ -10,7 +10,14 @@ const VITStudentEmailSchema = z
   .trim()
   .min(1, 'Email is required')
   .email('Enter a valid email address')
-  .refine((value) => VIT_EMAIL.test(value), 'Must use a VIT student email ending in @vitstudent.ac.in')
+  // TEMP-DISABLED (2026-08-28) - VIT's mail servers are filtering/delaying
+  // inbound Resend confirmation emails for the first 2-3 days of a new
+  // sending domain's reputation warming up, so @vitstudent.ac.in signups
+  // can't reliably receive their confirmation link right now. This is a
+  // stopgap until deliverability to VIT addresses is confirmed working,
+  // NOT a permanent product decision - REVERT BY UNCOMMENTING THIS LINE
+  // (src/lib/validation.ts:19) once that's confirmed.
+  // .refine((value) => VIT_EMAIL.test(value), 'Must use a VIT student email ending in @vitstudent.ac.in')
 
 export const LoginSchema = z.object({
   email: VITStudentEmailSchema,
