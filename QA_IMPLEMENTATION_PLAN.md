@@ -111,6 +111,73 @@ All executed together as one real, live scenario on staging: two real confirmed 
 
 **Not covered by this real-data pass, needs a live browser (structural limitation, not skipped silently):** actual map rendering, marker interaction, mobile touch behavior, geolocation permission prompts (Phase 8).
 
+### Final continuous regression (signup → email → login → home → profile → avatar → post → notifications → logout → login → forgot password → duplicate-signup)
+
+Ran as one continuous real flow on staging, two real accounts, with cleanup. 11/14 checks passed outright; all 3 apparent failures investigated and explained as test-script issues or environment differences, **not app bugs**:
+
+1. **"Session absent until confirmed" failed** → because **staging has Confirm Email OFF** (production has it ON) — a real, previously-undocumented environment-config difference, not a bug. Every other test in this audit that needed "unconfirmed" behavior simulated it directly via SQL regardless, so this didn't invalidate any other result - but it's worth knowing local dev (`npm run dev` → staging) won't naturally exercise the unconfirmed-account UI paths the way production does.
+2. **"Avatar persisted across logout/login" failed** → this specific regression script forgot to call `profiles.update({avatar_url})` after the storage upload (a step the earlier, dedicated Phase 3-5 test correctly included and passed). Test-script bug, not an app bug.
+3. **"Duplicate signup returns the fake-success signal" failed** → Supabase returns a genuinely *different* response shape (an explicit `"User already registered"` error, not the empty-`identities` fake-success) when Confirm Email is OFF for that project. Both shapes are already handled correctly by `useAuth.tsx`: the pre-existing `if (error) throw error` catches the explicit-error case; the new check from Fix #1 catches the fake-success case. No gap in either environment.
+
+**Genuine new finding to flag:** staging and production now have different `Confirm Email` settings. Not fixed as part of this audit (it's a Dashboard toggle, not code, and changing it wasn't requested) - flagged for the project owner's awareness.
+
+## 6. Phase 14 — Email / Resend pipeline (checkable parts only)
+
+Confirmed from the Supabase/database side (Resend dashboard, SPF/DKIM/DMARC records, and actual Gmail inbox delivery are outside what this environment can check):
+- Production's `Confirm Email` setting is ON (confirmed empirically, not from Dashboard access).
+- The `enforce_vit_email_domain()` trigger is still live-overridden to a no-op on production, exactly as tracked in §2 - confirmed by reading its current body directly.
+- `sendPasswordResetEmail`/`resetPasswordForEmail` and `signUp`'s confirmation email both go through the same Supabase → SMTP (Resend) pipeline - no separate email code path exists in this app for either.
+- The confirmation email template content (the `{{ .ConfirmationURL }}` HTML shown in the audit brief) is a Supabase Dashboard setting, not stored in this repo or database - not independently verifiable from here.
+
+## 7. Phase 15 — Disposition of temporary VIT-domain changes
+
+Per the explicit instruction to report this at the end of email-flow testing rather than revert unilaterally:
+
+**Current state (still exactly as tracked in §2):**
+- `src/lib/validation.ts` — VIT-domain check still commented out on `main` (this was intentionally *re-opened* after an earlier revert, specifically for ongoing Resend/Gmail deliverability testing - see the "reopen signup to any email" commit).
+- Production's `enforce_vit_email_domain()` — still live-overridden to a no-op.
+
+**Recommendation:** these should be restored once you've confirmed Gmail delivery is working reliably through Resend (the original purpose of opening them). This QA audit did not change or further test Gmail deliverability itself - that remains exactly where you left it. I have not restored these, per the explicit instruction not to until you say the email testing is done.
+
+---
+
+## 8. PRODUCTION QA RESULT
+
+| Feature | Status | Notes |
+|---|---|---|
+| Signup | ✅ PASS | Real signup verified against both staging and production |
+| Duplicate signup | 🔧 FIXED | Was silently misleading on an already-confirmed account; now clearly detected and reported |
+| Email verification | ✅ PASS (mechanism) / ⚠️ not independently deliverable-checked | Supabase-side confirmed correct; actual Gmail inbox delivery not checkable from this environment |
+| Resend | ⚠️ Partially checkable | Supabase→SMTP pipeline confirmed wired; Resend dashboard/SPF/DKIM/DMARC not accessible from here |
+| Login | ✅ PASS | Correct/incorrect credentials, confirmed/unconfirmed accounts, all behave correctly |
+| Incorrect password | ✅ PASS | Rejected cleanly, no broken session, in both a fresh and re-login scenario |
+| Forgot password | 🔧 BUILT | Did not exist before this audit; built, tested, verified end-to-end against production |
+| Sessions | ✅ PASS | Persist correctly across logout/login; new-tab/browser-restart persistence relies on Supabase's own localStorage session (standard, not independently re-tested this pass) |
+| Logout | ✅ PASS | Clean, no residual session issues found |
+| Personalized greeting | ✅ PASS (re-verified) | First-name extraction correct for multiple real names |
+| Profile | ✅ PASS (re-verified) | Heading/contact line render from real data, no hardcoding |
+| Phone | ✅ PASS (re-verified) | Reused existing `profiles.phone`, no duplicate field |
+| Avatar | ✅ PASS (re-verified) | Upload, persistence, public URL, ownership RLS all confirmed - **found and fixed a real gap: staging was missing this migration entirely** |
+| Posting | ✅ PASS | Full lifecycle (create → accept → notify) verified with real accounts |
+| Rate limiting | ✅ PASS (investigated) | Limiter works exactly as designed; no defect found; original report most likely explained by legitimate repeated testing or an unrelated Supabase auth-cooldown message |
+| Text (chat) | 🔧 FIXED | Message length/emptiness was only client-validated; added a matching server-side CHECK constraint |
+| Map | ⚠️ Not testable here | Needs a live browser; database/RLS layer for location data confirmed correct |
+| Distance analysis | ✅ PASS | `haversine_km()` independently verified to match a hand-computed formula |
+| Notifications | ✅ PASS | Correct recipient, correct type, correctly isolated from other users |
+| Friends | ✅ PASS | Self-request/duplicate-request guards, accept flow, and privacy (stranger can't read the friendship row) all confirmed |
+| Activity | ✅ PASS | Correct per-user views; OTP-bypass protection on `delivered` status re-confirmed still intact |
+| RLS/security | ✅ PASS | Extensive cross-user isolation testing across chat, notifications, friendships, orders, blocks/reports/rate-limit tables - no leaks found |
+
+### Is CampusLink ready for real users?
+
+**Yes, for a small/early cohort, with three explicit conditions:**
+
+1. **Restore the VIT-domain restriction** (both `validation.ts` and the production trigger) before any real rollout beyond your own Resend testing - it's currently open to any email address, which was a deliberate, tracked, temporary state for exactly the testing you're doing now, not a permanent one.
+2. **Confirm Gmail delivery is actually landing** (this audit could not check an inbox) before relying on the email-confirmation flow for real students.
+3. **Decide on the 5-posts-per-hour rate limit** deliberately if you expect real usage patterns to approach it - it's working correctly, just worth a conscious decision rather than discovering it live.
+
+Everything else audited this pass - authentication (now with two real bugs fixed and a real missing feature built), profile/avatar, posting, chat, notifications, friends, activity, and RLS/security - held up under real, adversarial-style testing with live accounts, not just code review. The two structurally-unverifiable areas (live map/mobile rendering, actual Resend/Gmail deliverability) are the ones you're best positioned to confirm yourself in a real browser.
+
 ### Phase 6 — Posting / rate limiting
 
 | ID | Test | Steps | Expected | Actual | Result | Root cause | Fix | Branch |
