@@ -74,7 +74,15 @@ Legend: **PASS** / **FAIL** / **PENDING** (not yet executed this pass).
 
 | ID | Test | Steps | Expected | Actual | Result | Root cause | Fix | Branch |
 |---|---|---|---|---|---|---|---|---|
-| POST-01 | Rate-limit error while posting a request | Investigate | — | PENDING — investigating next | PENDING | — | — | `qa/posting-rate-limit` |
+| POST-01 | Rate-limit error while posting a request | Real 6-posts-in-a-row test as one user, both staging and production DBs inspected for historical evidence | Determine whether the limiter is malfunctioning, miscounting, or the report is something else entirely | See detailed write-up below | **PASS (limiter itself), root cause identified as likely non-bug** | See below | None applied - no defect found | — |
+
+**POST-01 investigation detail:**
+1. Checked `rate_limit_events` for the `create_order` action (and every other action) on **both** staging and production: **zero rows, ever, on either project.** The custom rate limiter has never actually fired for any real recorded session.
+2. Ran a real, live test: one genuine user account posting 6 orders back-to-back on staging. Result: **posts 1-5 succeeded, post 6 was correctly rejected** with `"Please slow down - try again in a few minutes"` - exactly the designed 5-per-60-minutes threshold from `20260903140000_order_chat_rate_limits.sql`, working exactly as specified. No miscounting, no false rejection, no legitimate single post ever blocked.
+3. **Conclusion: no code defect found in the rate limiter itself.** Two most likely explanations for the original report, neither of which is a bug in this mechanism:
+   - The reporter genuinely posted 5+ times within an hour while actively testing/iterating on the posting flow during development - correct, intended behavior for a real abuse-prevention limiter, just a low threshold for active dev/QA use.
+   - A **different, unrelated** Supabase platform-level cooldown was encountered and misattributed - confirmed during this same audit's Phase 2 testing that Supabase's own signup/resend cooldown uses very similar wording ("For security purposes, you can only request this after N seconds"), which could easily be misread as "the app's rate limiter" if hit during adjacent auth testing.
+4. **Not changed:** the 5/60min threshold itself. Per the explicit instruction not to weaken rate limiting without understanding it, and because this exact threshold was a deliberate, documented product decision (see `PHASE3_3J_TRUST_SAFETY_SPEC.md` §3's own reasoning). If the threshold is genuinely felt to be too strict for real end-user usage, that's a product decision for the project owner to make explicitly - flagged here as an open question, not silently changed.
 
 ### Phase 15 — Temporary VIT changes disposition
 
