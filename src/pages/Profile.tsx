@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,10 +17,107 @@ import { useRatings } from '@/hooks/useRatings'
 import { useFriends } from '@/hooks/useFriends'
 import { useAnalytics } from '@/hooks/useAnalytics'
 import { useToast } from '@/hooks/use-toast'
-import { getErrorMessage } from '@/lib/utils'
+import { getErrorMessage, getFirstName, cn } from '@/lib/utils'
 import { ProfileUpdateSchema } from '@/lib/validation'
+import { supabase } from '@/lib/supabase'
 import { Text } from '@/components/primitives'
 import type { ProfileReputation, MyActivitySummary } from '@/lib/database-types'
+
+const AVATAR_ACCEPT = 'image/jpeg,image/jpg,image/png,image/webp'
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024 // 5MB - generous for a phone-camera photo, small enough to upload quickly on campus wifi
+const AVATAR_TYPES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
+
+const EditableAvatar = ({
+  avatarUrl,
+  fallback,
+  userId,
+  onUploaded,
+}: {
+  avatarUrl: string | null
+  fallback: string
+  userId: string
+  onUploaded: (url: string) => Promise<void>
+}) => {
+  const { toast } = useToast()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file next time
+    if (!file) return
+
+    if (!AVATAR_TYPES.has(file.type)) {
+      toast({ title: 'Unsupported file type', description: 'Choose a JPG, PNG, or WEBP image.', variant: 'destructive' })
+      return
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      toast({ title: 'Photo is too large', description: 'Choose an image under 5MB.', variant: 'destructive' })
+      return
+    }
+
+    setUploading(true)
+    try {
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg'
+      const path = `${userId}/avatar.${ext}`
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(path, file, { upsert: true, contentType: file.type })
+      if (uploadError) throw uploadError
+
+      const { data } = supabase.storage.from('avatars').getPublicUrl(path)
+      // Cache-bust: the storage path is fixed per user (always overwritten
+      // in place), so the public URL alone never changes on re-upload -
+      // without this, a browser that already cached the old image would
+      // keep showing it after a successful change.
+      await onUploaded(`${data.publicUrl}?t=${Date.now()}`)
+      toast({ title: 'Photo updated' })
+    } catch (error) {
+      toast({
+        title: 'Could not upload photo',
+        description: getErrorMessage(error, 'Please try again.'),
+        variant: 'destructive',
+      })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="relative size-20 shrink-0">
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+        aria-label="Change photo"
+        className="group relative flex size-20 items-center justify-center overflow-hidden bg-primary font-display text-display-sm font-normal text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      >
+        {avatarUrl ? (
+          <img src={avatarUrl} alt="" className="size-full object-cover" />
+        ) : (
+          <span>{fallback}</span>
+        )}
+        <span
+          className={cn(
+            'absolute inset-0 flex items-center justify-center bg-black/50 text-center font-body text-caption font-semibold text-white opacity-0 transition-opacity duration-fast',
+            uploading ? 'opacity-100' : 'group-hover:opacity-100 group-focus-visible:opacity-100',
+          )}
+        >
+          {uploading ? 'Uploading…' : 'Change photo'}
+        </span>
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        data-testid="avatar-file-input"
+        accept={AVATAR_ACCEPT}
+        onChange={handleFileChange}
+        className="hidden"
+        aria-hidden="true"
+      />
+    </div>
+  )
+}
 
 type FieldErrors = { name?: string; phone?: string }
 
@@ -193,27 +290,41 @@ const Profile = () => {
   }
 
   const profile = user?.profile
-  const displayName = profile?.name || 'Your profile'
-  const displayPhone = profile?.phone ? `+91-${profile.phone}` : 'No phone on file'
+  const displayName = profile?.name || ''
+  const firstName = getFirstName(displayName)
+  const headingText = firstName ? `${firstName}'s profile` : 'Your profile'
   const avatarInitial = displayName.charAt(0).toUpperCase() || '?'
   const block = profile?.hostel_block
+  const contactLine = [
+    profile?.email || user?.user.email,
+    profile?.phone ? `+91 ${profile.phone}` : null,
+  ].filter(Boolean).join(' · ')
 
   const handleSaveProfile = async (updates: { name: string; phone: string }) => {
     await updateProfile(updates)
   }
 
+  const handleAvatarUploaded = async (url: string) => {
+    await updateProfile({ avatar_url: url })
+  }
+
   return (
     <div className="max-w-measure">
       <div className="flex items-center gap-6 border-b-2 border-foreground pb-10">
-        <div className="flex size-20 shrink-0 items-center justify-center bg-primary font-display text-display-sm font-normal text-primary-foreground">
-          {block || avatarInitial}
-        </div>
+        {user?.user.id && (
+          <EditableAvatar
+            avatarUrl={profile?.avatar_url || null}
+            fallback={block || avatarInitial}
+            userId={user.user.id}
+            onUploaded={handleAvatarUploaded}
+          />
+        )}
         <div className="min-w-0">
           <Text variant="display" accent className="block text-[2.75rem] leading-[0.98] sm:text-[3.25rem]">
-            {displayName}
+            {headingText}
           </Text>
           <Text variant="bodySm" tone="muted" as="p" className="mt-2">
-            {profile?.email || user?.user.email} · {displayPhone}
+            {contactLine}
           </Text>
         </div>
       </div>

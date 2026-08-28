@@ -51,10 +51,25 @@ export function createQueryBuilder(result: MockResult): QueryBuilder {
   return builder
 }
 
+/** A minimal stand-in for supabase.storage.from(bucket) - just the two
+ * methods the avatar-upload feature uses. */
+export function createStorageBucketMock(overrides: {
+  upload?: ReturnType<typeof vi.fn>
+  getPublicUrl?: ReturnType<typeof vi.fn>
+} = {}) {
+  return {
+    upload: overrides.upload || vi.fn(() => Promise.resolve({ data: { path: 'x' }, error: null })),
+    getPublicUrl: overrides.getPublicUrl || vi.fn(() => ({ data: { publicUrl: 'https://example.test/avatar.jpg' } })),
+  }
+}
+
 export function createSupabaseMock() {
   return {
     from: vi.fn(),
     rpc: vi.fn(),
+    storage: {
+      from: vi.fn(() => createStorageBucketMock()),
+    },
     channel: vi.fn(() => ({
       on: vi.fn().mockReturnThis(),
       subscribe: vi.fn().mockReturnThis(),

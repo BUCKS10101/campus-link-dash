@@ -97,6 +97,7 @@ export const ProfileUpdateSchema = z.object({
     .trim()
     .regex(/^\d{10}$/, 'Enter a 10-digit phone number')
     .optional(),
+  avatar_url: z.string().trim().url('Invalid photo URL').optional(),
 }).partial()
 export type ProfileUpdateInput = z.infer<typeof ProfileUpdateSchema>
 

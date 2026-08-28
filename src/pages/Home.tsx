@@ -23,7 +23,7 @@ import { usePreferences } from '@/hooks/usePreferences'
 import { useDiscoveryLocation } from '@/hooks/useDiscoveryLocation'
 import { WhereFilter } from '@/components/home/WhereFilter'
 import { Rule, Text } from '@/components/primitives'
-import { getErrorMessage } from '@/lib/utils'
+import { getErrorMessage, getFirstName } from '@/lib/utils'
 import type { OrderWithProfiles } from '@/lib/database-types'
 
 const NO_LOCATION_FILTER: LocationFilter = { pickupPointId: null, deliveryPointId: null }
@@ -435,8 +435,15 @@ const Home = () => {
     return <HomeSkeleton />
   }
 
+  const firstName = getFirstName(user?.profile?.name)
+
   return (
     <>
+      {firstName && (
+        <Text variant="label" tone="faint" as="div" className="mb-4">
+          Hello, {firstName}
+        </Text>
+      )}
       {/* Two cards, not one full-bleed panel: a light editorial headline
           card plus a small, separate dark plum stat card. The dark plum
           stays rare and deliberate - reserved for this one stat and for

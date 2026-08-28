@@ -800,3 +800,24 @@ describe('Home — Phase 3H discovery', () => {
     expect(mockFetchOrders).toHaveBeenCalledWith({ viewerId: 'viewer-1' })
   })
 })
+
+describe('Home — personalized greeting', () => {
+  it('shows "Hello, {firstName}" using the first token of the real profile name', () => {
+    mockUseAuth.mockReturnValue({ user: { ...AUTH_USER, profile: { name: 'Govind Nair' } }, loading: false })
+    renderPage()
+    expect(screen.getByText('Hello, Govind')).toBeInTheDocument()
+  })
+
+  it('extracts the first name correctly for a different real name, never hardcoded', () => {
+    mockUseAuth.mockReturnValue({ user: { ...AUTH_USER, profile: { name: 'Raj Sudarshan' } }, loading: false })
+    renderPage()
+    expect(screen.getByText('Hello, Raj')).toBeInTheDocument()
+    expect(screen.queryByText('Hello, Govind')).not.toBeInTheDocument()
+  })
+
+  it('shows no greeting at all when the profile has not loaded yet, rather than "Hello, "', () => {
+    mockUseAuth.mockReturnValue({ user: AUTH_USER, loading: false }) // profile: null
+    renderPage()
+    expect(screen.queryByText(/^Hello,/)).not.toBeInTheDocument()
+  })
+})

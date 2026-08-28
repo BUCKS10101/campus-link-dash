@@ -15,6 +15,7 @@ export interface Profile {
   rating: number | null
   successful_deliveries: number
   balance: number
+  avatar_url: string | null
   created_at: string
 }
 

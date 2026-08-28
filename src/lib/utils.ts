@@ -49,3 +49,12 @@ export function getErrorMessage(err: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+/**
+ * profiles.name is stored as the full name entered at signup (e.g. "Govind
+ * Nair") - this extracts just the first token for greeting-style UI
+ * ("Hello, Govind", "Govind's profile") without a second name field.
+ */
+export function getFirstName(fullName: string | null | undefined): string {
+  return fullName?.trim().split(/\s+/)[0] || "";
+}

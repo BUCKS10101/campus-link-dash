@@ -1,11 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import { createSupabaseMock, createStorageBucketMock } from '@/test/supabaseMock'
 
 const mockToast = vi.fn()
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast: mockToast }),
+}))
+
+const supabaseMock = createSupabaseMock()
+vi.mock('@/lib/supabase', () => ({
+  get supabase() {
+    return supabaseMock
+  },
 }))
 
 const mockUpdateProfile = vi.fn()
@@ -41,6 +49,7 @@ const PROFILE = {
   rating: null,
   successful_deliveries: 0,
   balance: 0,
+  avatar_url: null,
   created_at: new Date().toISOString(),
 }
 
@@ -67,11 +76,32 @@ describe('Profile', () => {
     expect(screen.queryByText('Jane Doe')).not.toBeInTheDocument()
   })
 
-  it('renders real profile identity', () => {
+  it('renders the heading as "{firstName}\'s profile", not the full name', () => {
     renderProfile()
-    expect(screen.getByText('Jane Doe')).toBeInTheDocument()
+    expect(screen.getByText("Jane's profile")).toBeInTheDocument()
+    expect(screen.queryByText('Jane Doe')).not.toBeInTheDocument()
+  })
+
+  it('renders real email and phone together on one contact line', () => {
+    renderProfile()
     expect(screen.getByText(/jane@vitstudent\.ac\.in/)).toBeInTheDocument()
     expect(screen.getByText(/9876543210/)).toBeInTheDocument()
+  })
+
+  it('never shows the awkward "No phone on file" text when a phone exists', () => {
+    renderProfile()
+    expect(screen.queryByText(/no phone on file/i)).not.toBeInTheDocument()
+  })
+
+  it('gracefully omits the phone segment when no phone exists, without a placeholder', () => {
+    mockUseAuth.mockReturnValue({
+      user: { ...AUTH_USER, profile: { ...PROFILE, phone: null } },
+      loading: false,
+      updateProfile: mockUpdateProfile,
+    })
+    renderProfile()
+    expect(screen.queryByText(/no phone on file/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/jane@vitstudent\.ac\.in/)).toBeInTheDocument()
   })
 
   it('never shows balance - payments are deferred, no wallet exists', () => {
@@ -267,6 +297,98 @@ describe('Profile', () => {
       // Reopening shows the real, unchanged value - nothing leaked from the discarded edit.
       await user.click(screen.getByRole('button', { name: /edit profile/i }))
       expect(screen.getByLabelText(/full name/i)).toHaveValue('Jane Doe')
+    })
+  })
+
+  describe('avatar upload', () => {
+    const makeFile = (name: string, type: string, sizeBytes = 1024) => {
+      const file = new File(['x'.repeat(sizeBytes)], name, { type })
+      return file
+    }
+
+    it('shows the initial/block fallback when no avatar_url is set', () => {
+      renderProfile()
+      expect(screen.getByRole('button', { name: /change photo/i })).toHaveTextContent('K')
+    })
+
+    it('renders the real avatar image when avatar_url is set', () => {
+      mockUseAuth.mockReturnValue({
+        user: { ...AUTH_USER, profile: { ...PROFILE, avatar_url: 'https://example.test/jane.jpg' } },
+        loading: false,
+        updateProfile: mockUpdateProfile,
+      })
+      renderProfile()
+      const img = screen.getByRole('button', { name: /change photo/i }).querySelector('img')
+      expect(img).toHaveAttribute('src', 'https://example.test/jane.jpg')
+    })
+
+    it('uploads a selected image, persists the URL via updateProfile, and toasts success', async () => {
+      const uploadMock = vi.fn(() => Promise.resolve({ data: { path: 'user-1/avatar.jpg' }, error: null }))
+      const getPublicUrlMock = vi.fn(() => ({ data: { publicUrl: 'https://example.test/user-1/avatar.jpg' } }))
+      supabaseMock.storage.from.mockReturnValue(createStorageBucketMock({ upload: uploadMock, getPublicUrl: getPublicUrlMock }))
+      mockUpdateProfile.mockResolvedValue(undefined)
+
+      const user = userEvent.setup()
+      renderProfile()
+      const input = screen.getByTestId('avatar-file-input')
+      const file = makeFile('photo.jpg', 'image/jpeg')
+
+      await user.upload(input, file)
+
+      await waitFor(() => expect(uploadMock).toHaveBeenCalledWith('user-1/avatar.jpg', file, { upsert: true, contentType: 'image/jpeg' }))
+      await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledWith({
+        avatar_url: expect.stringMatching(/^https:\/\/example\.test\/user-1\/avatar\.jpg\?t=\d+$/),
+      }))
+      await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Photo updated' })))
+    })
+
+    it('rejects an unsupported file type before ever uploading (defense-in-depth beyond the accept attribute, which some mobile browsers ignore)', async () => {
+      const uploadMock = vi.fn()
+      supabaseMock.storage.from.mockReturnValue(createStorageBucketMock({ upload: uploadMock }))
+
+      renderProfile()
+      const input = screen.getByTestId('avatar-file-input') as HTMLInputElement
+      const file = makeFile('doc.pdf', 'application/pdf')
+      // fireEvent bypasses userEvent's own accept-attribute filtering, so
+      // this exercises the component's own defensive type check directly -
+      // a real browser's file picker would already filter this out via
+      // `accept`, but some mobile browsers/webviews don't enforce it.
+      Object.defineProperty(input, 'files', { value: [file], configurable: true })
+      fireEvent.change(input)
+
+      await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringMatching(/unsupported file type/i) })))
+      expect(uploadMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects a file over the size limit before ever uploading', async () => {
+      const uploadMock = vi.fn()
+      supabaseMock.storage.from.mockReturnValue(createStorageBucketMock({ upload: uploadMock }))
+
+      const user = userEvent.setup()
+      renderProfile()
+      const input = screen.getByTestId('avatar-file-input')
+      const file = makeFile('huge.jpg', 'image/jpeg', 6 * 1024 * 1024)
+
+      await user.upload(input, file)
+
+      expect(uploadMock).not.toHaveBeenCalled()
+      expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringMatching(/too large/i) }))
+    })
+
+    it('shows an error toast, not a crash, when the upload itself fails', async () => {
+      const uploadMock = vi.fn(() => Promise.resolve({ data: null, error: { message: 'Storage is down' } }))
+      supabaseMock.storage.from.mockReturnValue(createStorageBucketMock({ upload: uploadMock }))
+
+      const user = userEvent.setup()
+      renderProfile()
+      const input = screen.getByTestId('avatar-file-input')
+      await user.upload(input, makeFile('photo.png', 'image/png'))
+
+      await waitFor(() => expect(mockToast).toHaveBeenCalledWith(expect.objectContaining({
+        title: expect.stringMatching(/could not upload photo/i),
+        description: 'Storage is down',
+      })))
+      expect(mockUpdateProfile).not.toHaveBeenCalled()
     })
   })
 })
