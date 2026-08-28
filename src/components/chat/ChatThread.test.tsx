@@ -186,4 +186,29 @@ describe('ChatThread', () => {
 
     expect(mockMarkOrderChatRead.mock.calls.length).toBeGreaterThan(callsAfterMount)
   })
+
+  // Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2/§8.
+  describe('emailVerified gating (Phase 3J)', () => {
+    it('defaults to fully interactive when emailVerified is omitted', () => {
+      mockUseChat.mockReturnValue(chatReturn())
+      renderThread()
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
+    it('shows an inline verify-email message and disables Send when unverified', async () => {
+      mockUseChat.mockReturnValue(chatReturn())
+      renderThread({ emailVerified: false })
+
+      expect(screen.getByRole('alert')).toHaveTextContent(/verify your email/i)
+      await userEvent.type(screen.getByPlaceholderText('Message…'), 'hello')
+      expect(screen.getByRole('button', { name: /send/i })).toBeDisabled()
+      expect(mockSendMessage).not.toHaveBeenCalled()
+    })
+
+    it('stays fully interactive when explicitly verified', () => {
+      mockUseChat.mockReturnValue(chatReturn())
+      renderThread({ emailVerified: true })
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+  })
 })

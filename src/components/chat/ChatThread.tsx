@@ -17,6 +17,14 @@ export interface ChatThreadProps {
   counterpartName: string | null
   /** "Restaurant → destination", already formatted by the caller. */
   contextLine: string
+  /**
+   * Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2/§8. Defaults to
+   * true (unaffected) for any existing caller that doesn't pass it -
+   * the real boundary is chat_messages_enforce_sender_verified
+   * (server-side, 20260903180000_email_verification_enforcement.sql)
+   * regardless of this prop; this only controls the inline UX courtesy.
+   */
+  emailVerified?: boolean
 }
 
 /**
@@ -49,7 +57,7 @@ const ChatSkeleton = () => (
  * product. Order context stays quiet and small; the conversation itself
  * carries the visual weight.
  */
-export function ChatThread({ orderId, currentUserId, counterpartName, contextLine }: ChatThreadProps) {
+export function ChatThread({ orderId, currentUserId, counterpartName, contextLine, emailVerified = true }: ChatThreadProps) {
   const { messages, loading, error, sendMessage, refetch } = useChat(orderId)
   const { markOrderChatRead } = useNotifications()
   const { toast } = useToast()
@@ -67,6 +75,7 @@ export function ChatThread({ orderId, currentUserId, counterpartName, contextLin
 
   const handleSend = async () => {
     if (!draft.trim() || sending) return
+    if (!emailVerified) return
     setSending(true)
     try {
       await sendMessage(draft, currentUserId)
@@ -151,6 +160,12 @@ export function ChatThread({ orderId, currentUserId, counterpartName, contextLin
         })}
       </div>
 
+      {!emailVerified && (
+        <Text variant="caption" tone="danger" as="p" className="mt-3" role="alert">
+          Verify your email to do this. <a href="/verify-email" className="underline underline-offset-4">Resend verification</a>
+        </Text>
+      )}
+
       <div className="mt-4 flex items-end gap-2">
         <label htmlFor={`chat-composer-${orderId}`} className="sr-only">Message</label>
         <Input
@@ -162,7 +177,7 @@ export function ChatThread({ orderId, currentUserId, counterpartName, contextLin
           maxLength={1000}
           disabled={sending}
         />
-        <Button onClick={handleSend} loading={sending} disabled={!draft.trim()} size="sm">
+        <Button onClick={handleSend} loading={sending} disabled={!draft.trim() || !emailVerified} size="sm">
           Send
         </Button>
       </div>

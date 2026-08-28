@@ -390,6 +390,20 @@ const Home = () => {
 
   const handleAcceptOrder = async (orderId: string) => {
     if (!user) return
+
+    // Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2/§8. UX courtesy
+    // only - orders_update_accept's own trigger (20260903180000) is the
+    // real, un-bypassable boundary regardless of this check.
+    if (!user.emailVerified) {
+      toast({
+        title: 'Verify your email to do this',
+        description: 'Resend a verification link from the check-your-email page.',
+        variant: 'destructive',
+      })
+      navigate('/verify-email')
+      return
+    }
+
     setAcceptingId(orderId)
     try {
       // Looked up from the board's own already-fetched data (acceptOrder's

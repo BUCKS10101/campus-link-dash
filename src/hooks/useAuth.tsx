@@ -7,6 +7,16 @@ import { SignupSchema, LoginSchema, ProfileUpdateSchema, ChangePasswordSchema, v
 export interface AuthUser {
   user: User
   profile: Profile | null
+  /**
+   * Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2. Purely derived from
+   * the Supabase-native session.user.email_confirmed_at field (already
+   * present on every session, unread by any code before 3J) - not a new
+   * DB column, not a second identity system. null/undefined means "never
+   * confirmed"; any timestamp means confirmed, once, permanently (a
+   * BEFORE INSERT trigger only rejects new signups from the wrong
+   * domain - it has no bearing on this field).
+   */
+  emailVerified: boolean
 }
 
 interface AuthContextValue {
@@ -47,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.error('Error fetching profile:', error)
         }
 
-        setUser({ user: authUser, profile })
+        setUser({ user: authUser, profile, emailVerified: authUser.email_confirmed_at != null })
       } catch (error) {
         console.error('Error fetching profile:', error)
       } finally {
@@ -77,7 +87,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setTimeout(() => {
         if (session?.user) {
-          if (fetchedForUserId === session.user.id) return
+          if (fetchedForUserId === session.user.id) {
+            // Same user as before - skip the profile re-fetch (the
+            // guard this comment sits above exists for), but still
+            // refresh the raw `user` object itself. Phase 3J: this is
+            // what lets emailVerified flip from false to true after a
+            // real confirmation-link click without a full page reload -
+            // Supabase emits a fresh session.user (new
+            // email_confirmed_at) on that event, and the old code here
+            // discarded it entirely for an already-fetched user id.
+            setUser((prev) => (prev
+              ? { ...prev, user: session.user, emailVerified: session.user.email_confirmed_at != null }
+              : prev))
+            return
+          }
           void fetchUserProfile(session.user)
         } else {
           fetchedForUserId = null
@@ -172,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Error refreshing profile:', fetchError)
     }
 
-    setUser({ user: user.user, profile })
+    setUser({ user: user.user, profile, emailVerified: user.emailVerified })
   }
 
   // Requires re-proving the current password (via a real sign-in call,

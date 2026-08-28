@@ -34,7 +34,7 @@ vi.mock('@/hooks/useFriends', () => ({
 
 const { default: Friends } = await import('./Friends')
 
-const AUTH_USER = { user: { id: 'me', email: 'me@vitstudent.ac.in' }, profile: null }
+const AUTH_USER = { user: { id: 'me', email: 'me@vitstudent.ac.in' }, profile: null , emailVerified: true }
 
 const FRIEND = {
   id: 'f1', requester_id: 'me', addressee_id: 'other-1', status: 'accepted', created_at: new Date().toISOString(),
@@ -214,5 +214,24 @@ describe('Friends page - Find students search', () => {
     await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
     await waitFor(() => expect(mockSendFriendRequest).toHaveBeenCalledWith('x1'))
     expect(await screen.findByText('Pending')).toBeInTheDocument()
+  })
+
+  // Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2/§8. UX courtesy
+  // only - send_friend_request()'s own server-side check is the real
+  // boundary regardless of this client-side pre-check.
+  it('shows a verify-email prompt and never calls sendFriendRequest when unverified', async () => {
+    mockUseAuth.mockReturnValue({ user: { ...AUTH_USER, emailVerified: false }, loading: false })
+    mockSearchProfiles.mockResolvedValue([
+      { id: 'x1', name: 'Dave', avg_rating: null, rating_count: 0, relationship: 'none' },
+    ])
+    renderFriends()
+    await screen.findByText('Find students')
+    expect(screen.getByText(/verify your email/i)).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText(/search students by name/i), 'Dave')
+    await screen.findByText('Dave', {}, { timeout: 1500 })
+
+    await userEvent.click(screen.getByRole('button', { name: /^add$/i }))
+
+    expect(mockSendFriendRequest).not.toHaveBeenCalled()
   })
 })

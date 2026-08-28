@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useFriends } from '@/hooks/useFriends'
 import { useToast } from '@/hooks/use-toast'
@@ -17,9 +18,10 @@ const reputationLine = (r: { avg_rating: number | null; rating_count: number }):
     : 'No ratings yet'
 
 /** "Find students" - a debounced name search, not a giant directory. */
-const FindStudents = ({ onSent }: { onSent: () => void }) => {
+const FindStudents = ({ onSent, emailVerified }: { onSent: () => void; emailVerified: boolean }) => {
   const { searchProfiles, sendFriendRequest } = useFriends()
   const { toast } = useToast()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchProfileResult[]>([])
   const [searching, setSearching] = useState(false)
@@ -42,6 +44,19 @@ const FindStudents = ({ onSent }: { onSent: () => void }) => {
   }, [query, searchProfiles])
 
   const handleAdd = async (id: string) => {
+    // Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2/§8. UX courtesy
+    // only - send_friend_request()'s own server-side check
+    // (20260903180000_email_verification_enforcement.sql) is the real
+    // boundary regardless of this check.
+    if (!emailVerified) {
+      toast({
+        title: 'Verify your email to do this',
+        description: 'Resend a verification link from the check-your-email page.',
+        variant: 'destructive',
+      })
+      navigate('/verify-email')
+      return
+    }
     setSendingId(id)
     try {
       await sendFriendRequest(id)
@@ -66,6 +81,11 @@ const FindStudents = ({ onSent }: { onSent: () => void }) => {
         onChange={(e) => setQuery(e.target.value)}
       />
       <div className="mt-4 flex flex-col">
+        {!emailVerified && (
+          <Text variant="caption" tone="danger" as="p" className="mb-3" role="alert">
+            Verify your email to do this. <a href="/verify-email" className="underline underline-offset-4">Resend verification</a>
+          </Text>
+        )}
         {searching && <Text variant="bodySm" tone="muted">Searching…</Text>}
         {!searching && query.trim() && results.length === 0 && (
           <Text variant="bodySm" tone="muted">No students found.</Text>
@@ -287,7 +307,7 @@ const Friends = () => {
       </div>
 
       <div className="mt-10 border-t border-border pt-6">
-        <FindStudents onSent={refetch} />
+        <FindStudents onSent={refetch} emailVerified={user?.emailVerified ?? false} />
       </div>
     </div>
   )

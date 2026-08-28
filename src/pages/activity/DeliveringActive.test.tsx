@@ -47,7 +47,7 @@ vi.mock('@/hooks/useRatings', () => ({
 
 const { default: DeliveringActive } = await import('./DeliveringActive')
 
-const AUTH_USER = { user: { id: 'customer-1', email: 'a@b.com' }, profile: null }
+const AUTH_USER = { user: { id: 'customer-1', email: 'a@b.com' }, profile: null , emailVerified: true }
 
 const CARRYING_ORDER = {
   id: 'order-2',

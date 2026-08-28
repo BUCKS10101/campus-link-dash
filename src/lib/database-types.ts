@@ -333,3 +333,48 @@ export interface NotificationWithOrder extends Notification {
     addressee_profile: { name: string } | null
   } | null
 }
+
+/**
+ * Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §4. Directional, not the
+ * friendships canonical-pair shape - A blocking B is a separate fact
+ * from B blocking A. Never written directly by the client - the only
+ * write path is block_user()/unblock_user(), two SECURITY DEFINER RPCs
+ * (supabase/migrations/20260903100000_blocks.sql). RLS scopes SELECT to
+ * the caller's own outgoing blocks only - never who has blocked them
+ * (see the spec's privacy reasoning).
+ */
+export interface Block {
+  id: string
+  blocker_id: string
+  blocked_id: string
+  created_at: string
+}
+
+/** The fixed reason enum reports.reason's CHECK constraint enforces -
+ * mirrors notifications.type's own fixed-enum convention. */
+export type ReportReason =
+  | 'no_show'
+  | 'unsafe_behavior'
+  | 'harassment'
+  | 'inappropriate_content'
+  | 'suspected_fake_account'
+  | 'other'
+
+/**
+ * Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §5. Never written
+ * directly by the client - the only write path is file_report(), a
+ * SECURITY DEFINER RPC (supabase/migrations/20260903120000_reports.sql)
+ * that rate-limits and self-report-guards server-side. RLS scopes
+ * SELECT to the reporter's own filed reports only - never reports filed
+ * against them, and never anyone else's. Immutable once filed: no
+ * UPDATE/DELETE policy or grant exists at all.
+ */
+export interface Report {
+  id: string
+  reporter_id: string
+  reported_user_id: string
+  order_id: string | null
+  reason: ReportReason
+  description: string | null
+  created_at: string
+}
