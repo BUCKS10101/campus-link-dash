@@ -77,7 +77,7 @@ vi.mock('@/components/map/CampusMap', () => ({
 
 const { default: PostRequest } = await import('./PostRequest')
 
-const AUTH_USER = { user: { id: 'requester-1', email: 'a@vitstudent.ac.in' }, profile: null }
+const AUTH_USER = { user: { id: 'requester-1', email: 'a@vitstudent.ac.in' }, profile: null , emailVerified: true }
 
 const renderPage = () => render(<MemoryRouter><PostRequest /></MemoryRouter>)
 
@@ -525,5 +525,24 @@ describe('PostRequest', () => {
 
     expect(mockCreateOrder).not.toHaveBeenCalled()
     expect(mockNavigate).toHaveBeenCalledWith('/login')
+  })
+
+  // Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2/§8. ProtectedRoute
+  // already keeps an unverified user off this page in the real app; this
+  // is the defensive second layer inside handleSubmit itself. The real
+  // boundary is orders_enforce_creator_verified (server-side).
+  it('redirects to /verify-email instead of posting when the session is unverified', async () => {
+    mockUseAuth.mockReturnValue({ user: { ...AUTH_USER, emailVerified: false } })
+    const user = userEvent.setup()
+    renderPage()
+    await fillThroughToReview(user)
+
+    await user.click(screen.getByRole('button', { name: 'Post this request' }))
+
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+    expect(mockNavigate).toHaveBeenCalledWith('/verify-email')
+    expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Verify your email to do this', variant: 'destructive' }),
+    )
   })
 })

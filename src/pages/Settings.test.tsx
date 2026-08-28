@@ -89,6 +89,7 @@ const { default: Settings } = await import('./Settings')
 const AUTH_USER = {
   user: { id: 'user-1', email: 'jane@vitstudent.ac.in' },
   profile: { id: 'user-1', name: 'Jane Doe', email: 'jane@vitstudent.ac.in', phone: '9876543210' },
+  emailVerified: true,
 }
 
 const renderSettings = () => render(<MemoryRouter><Settings /></MemoryRouter>)

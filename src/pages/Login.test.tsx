@@ -98,4 +98,52 @@ describe('Login', () => {
     )
     expect(screen.getByRole('button', { name: /^sign in$/i })).toBeEnabled()
   })
+
+  // Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2. A fresh signUp()
+  // navigates straight to /verify-email, NOT the generic user-truthy
+  // effect's '/' - that effect would otherwise race this explicit
+  // navigate the instant useAuth's mocked `user` value changes.
+  describe('register (Phase 3J)', () => {
+    const fillRegister = async (email: string, phone: string, password: string) => {
+      await userEvent.click(screen.getByRole('button', { name: /^register$/i }))
+      await userEvent.type(screen.getByLabelText(/full name/i), 'Jane Doe')
+      await userEvent.type(screen.getByLabelText(/vit email/i), email)
+      await userEvent.type(screen.getByLabelText(/phone number/i), phone)
+      await userEvent.type(screen.getByLabelText(/password/i), password)
+    }
+
+    it('navigates to /verify-email after a successful signUp, not "/"', async () => {
+      mockSignUp.mockResolvedValue({ user: { id: 'u1' } })
+      const { rerender } = render(<MemoryRouter><Login /></MemoryRouter>)
+
+      await fillRegister('jane@vitstudent.ac.in', '9876543210', 'password123')
+      await userEvent.click(screen.getByRole('button', { name: /create account/i }))
+
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/verify-email'))
+      expect(mockNavigate).not.toHaveBeenCalledWith('/')
+
+      // Even if the auth hook's `user` now flips truthy on the next
+      // render (as the real useAuth would once the session lands), the
+      // generic redirect effect must not also fire '/' - the ref guard
+      // is what prevents that race.
+      mockUseAuth.mockReturnValue({ user: { user: { id: 'u1' } }, signIn: mockSignIn, signUp: mockSignUp })
+      rerender(<MemoryRouter><Login /></MemoryRouter>)
+      expect(mockNavigate).not.toHaveBeenCalledWith('/')
+    })
+
+    it('re-arms the generic redirect if signUp itself fails', async () => {
+      mockSignUp.mockRejectedValue(new Error('Only @vitstudent.ac.in email addresses may register'))
+      const { rerender } = render(<MemoryRouter><Login /></MemoryRouter>)
+
+      await fillRegister('jane@vitstudent.ac.in', '9876543210', 'password123')
+      await userEvent.click(screen.getByRole('button', { name: /create account/i }))
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /create account/i })).toBeEnabled())
+      expect(mockNavigate).not.toHaveBeenCalledWith('/verify-email')
+
+      mockUseAuth.mockReturnValue({ user: { user: { id: 'u1' } }, signIn: mockSignIn, signUp: mockSignUp })
+      rerender(<MemoryRouter><Login /></MemoryRouter>)
+      expect(mockNavigate).toHaveBeenCalledWith('/')
+    })
+  })
 })

@@ -231,6 +231,22 @@ const PostRequest = () => {
       return
     }
 
+    // Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2/§8. ProtectedRoute
+    // already keeps an unverified user off this page entirely; this is a
+    // defensive second layer (e.g. verification status changing mid-visit)
+    // - the real, un-bypassable boundary is the server-side rate-limit
+    // trigger on orders (createOrder() still gets validated there
+    // regardless), this is just the UX courtesy on top of it.
+    if (!user.emailVerified) {
+      toast({
+        title: 'Verify your email to do this',
+        description: 'Resend a verification link from the check-your-email page.',
+        variant: 'destructive',
+      })
+      navigate('/verify-email')
+      return
+    }
+
     setLoading(true)
     try {
       const restaurant = RESTAURANTS.find((r) => r.id === formData.restaurant)

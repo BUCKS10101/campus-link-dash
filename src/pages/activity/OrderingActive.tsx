@@ -156,6 +156,7 @@ const OrderingActive = () => {
           emptyCtaLabel="Post a request"
           emptyCtaHref="/post-request"
           currentUserId={user.user.id}
+          emailVerified={user.emailVerified}
           getMyOrderOtp={active.getMyOrderOtp}
           verifyDeliveryOtp={active.verifyDeliveryOtp}
           computeWalkingRoute={active.computeWalkingRoute}

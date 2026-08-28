@@ -105,7 +105,7 @@ const DEFAULT_PREFERENCES = {
 
 const { default: Home } = await import('./Home')
 
-const AUTH_USER = { user: { id: 'viewer-1', email: 'a@vitstudent.ac.in' }, profile: null }
+const AUTH_USER = { user: { id: 'viewer-1', email: 'a@vitstudent.ac.in' }, profile: null , emailVerified: true }
 
 const baseOrder = (overrides: Record<string, unknown> & { id: string }) => ({
   requester_id: 'requester-1',
@@ -263,6 +263,23 @@ describe('Home — accepting an order', () => {
       expect.objectContaining({ title: 'Taken', description: expect.stringContaining('Priya Sharma') }),
     ))
     expect(mockToast.mock.calls[0][0].description).not.toContain('null')
+  })
+
+  // Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2/§8. UX courtesy
+  // only - orders_enforce_acceptor_verified (server-side) is the real
+  // boundary regardless of this client-side pre-check.
+  it('shows a verify-email prompt and never calls acceptOrder when unverified', async () => {
+    mockOrders = [baseOrder({ id: 'a', requester_profile: { id: 'requester-1', name: 'Priya Sharma', phone: '9876543210' } })]
+    mockUseAuth.mockReturnValue({ user: { ...AUTH_USER, emailVerified: false }, loading: false })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: /take/i }))
+
+    expect(mockAcceptOrder).not.toHaveBeenCalled()
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Verify your email to do this', variant: 'destructive' }),
+    ))
   })
 })
 

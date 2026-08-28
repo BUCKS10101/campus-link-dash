@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertCircle, ChevronDown } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { CancelOrderDialog } from '@/components/orders/CancelOrderDialog'
+import { BlockReportControls } from '@/components/trust/BlockReportControls'
 import { getErrorMessage, cn } from '@/lib/utils'
 import { formatOrderItems, formatDeliveryLocation, formatRouteEstimate } from '@/lib/orderContent'
 import { Text, Rule, StatusBadge } from '@/components/primitives'
@@ -345,6 +346,10 @@ const DeliveryTrackingSection = ({
 
 interface DetailProps {
   currentUserId: string
+  /** Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2/§8. Defaults to
+   * true for any caller that doesn't pass it - purely a UX courtesy on
+   * chat's composer, the real boundary is server-side regardless. */
+  emailVerified?: boolean
   getMyOrderOtp: (orderId: string) => Promise<string>
   verifyDeliveryOtp: (orderId: string, code: string) => Promise<boolean>
   computeWalkingRoute: (pickupPointId: string, deliveryPointId: string) => Promise<WalkingRoute | null>
@@ -358,6 +363,7 @@ const ActiveOrderDetail = ({
   order,
   role,
   currentUserId,
+  emailVerified = true,
   getMyOrderOtp,
   verifyDeliveryOtp,
   computeWalkingRoute,
@@ -396,13 +402,22 @@ const ActiveOrderDetail = ({
         </Button>
       )}
 
-      {canCancel && (
-        <div className="mt-4">
-          <CancelOrderDialog
-            role={role}
-            hasDeliverer={!!order.deliverer_id}
-            onConfirm={() => onCancel(order, role)}
-          />
+      {(canCancel || counterpart) && (
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          {canCancel && (
+            <CancelOrderDialog
+              role={role}
+              hasDeliverer={!!order.deliverer_id}
+              onConfirm={() => onCancel(order, role)}
+            />
+          )}
+          {counterpart && (
+            <BlockReportControls
+              targetUserId={counterpart.id}
+              targetName={counterpart.name || 'this student'}
+              orderId={order.id}
+            />
+          )}
         </div>
       )}
 
@@ -422,6 +437,7 @@ const ActiveOrderDetail = ({
         currentUserId={currentUserId}
         counterpartName={counterpart?.name || null}
         contextLine={`${order.restaurant_name} → ${formatDeliveryLocation(order.delivery_location)}`}
+        emailVerified={emailVerified}
       />
     </div>
   )

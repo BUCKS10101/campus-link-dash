@@ -30,6 +30,7 @@ vi.mock('@/hooks/useNotifications', () => ({
 const AUTH_USER = {
   user: { id: 'u1', email: 'jane@vitstudent.ac.in' },
   profile: { id: 'u1', name: 'Jane Doe', email: 'jane@vitstudent.ac.in', phone: '9876543210' },
+  emailVerified: true,
 }
 
 // Mirrors App.tsx's real route tree: one auth guard + one shell wrapping

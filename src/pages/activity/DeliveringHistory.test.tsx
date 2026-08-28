@@ -26,7 +26,7 @@ vi.mock('@/hooks/useRatings', () => ({
 
 const { default: DeliveringHistory } = await import('./DeliveringHistory')
 
-const AUTH_USER = { user: { id: 'customer-1', email: 'a@b.com' }, profile: null }
+const AUTH_USER = { user: { id: 'customer-1', email: 'a@b.com' }, profile: null , emailVerified: true }
 
 const PAST_DELIVERY = (overrides = {}) => ({
   id: 'order-2',

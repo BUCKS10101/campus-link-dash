@@ -164,6 +164,7 @@ const DeliveringActive = () => {
           emptyCtaLabel="Browse the board"
           emptyCtaHref="/"
           currentUserId={user.user.id}
+          emailVerified={user.emailVerified}
           getMyOrderOtp={active.getMyOrderOtp}
           verifyDeliveryOtp={active.verifyDeliveryOtp}
           computeWalkingRoute={active.computeWalkingRoute}

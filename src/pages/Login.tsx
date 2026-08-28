@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Text, Rule } from '@/components/primitives'
@@ -32,8 +32,15 @@ const Login = () => {
     password: ''
   })
 
+  // Phase 3J: a fresh signUp() sets `user` truthy the instant the session
+  // exists, same as sign-in - this effect would otherwise race
+  // handleRegister's own explicit navigate('/verify-email') below and
+  // send a just-registered, still-unverified user to Home instead. See
+  // PHASE3_3J_TRUST_SAFETY_SPEC.md §2.
+  const justRegisteredRef = useRef(false)
+
   useEffect(() => {
-    if (user) {
+    if (user && !justRegisteredRef.current) {
       navigate('/')
     }
   }, [user, navigate])
@@ -82,6 +89,7 @@ const Login = () => {
 
     setLoading(true)
     try {
+      justRegisteredRef.current = true
       await signUp(formData.email, formData.password, {
         fullName: formData.fullName,
         phone: formData.phone
@@ -90,7 +98,9 @@ const Login = () => {
         title: "Account created",
         description: "Check your email to verify your account."
       })
+      navigate('/verify-email')
     } catch (error) {
+      justRegisteredRef.current = false
       toast({
         title: "Couldn't create your account",
         description: getErrorMessage(error, "Please try again."),

@@ -44,7 +44,7 @@ const PROFILE = {
   created_at: new Date().toISOString(),
 }
 
-const AUTH_USER = { user: { id: 'user-1', email: 'jane@vitstudent.ac.in' }, profile: PROFILE }
+const AUTH_USER = { user: { id: 'user-1', email: 'jane@vitstudent.ac.in' }, profile: PROFILE , emailVerified: true }
 
 const renderProfile = () => render(<MemoryRouter><Profile /></MemoryRouter>)
 

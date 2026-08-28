@@ -133,6 +133,50 @@ describe('AuthProvider session hydration', () => {
   })
 })
 
+// Phase 3J - see PHASE3_3J_TRUST_SAFETY_SPEC.md §2. emailVerified is a
+// derived field, never a new DB column - purely session.user.email_confirmed_at != null.
+describe('emailVerified (Phase 3J)', () => {
+  it('is false when email_confirmed_at is null', async () => {
+    supabaseMock.from.mockReturnValue(createQueryBuilder({ data: { id: 'user-1', name: 'Jane' }, error: null }))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    act(() => emitAuthChange('INITIAL_SESSION', { user: { id: 'user-1', email_confirmed_at: null } }))
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.user?.emailVerified).toBe(false)
+  })
+
+  it('is true once email_confirmed_at carries a timestamp', async () => {
+    supabaseMock.from.mockReturnValue(createQueryBuilder({ data: { id: 'user-1', name: 'Jane' }, error: null }))
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    act(() => emitAuthChange('INITIAL_SESSION', { user: { id: 'user-1', email_confirmed_at: '2026-08-28T10:00:00.000Z' } }))
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.user?.emailVerified).toBe(true)
+  })
+
+  // Regression: a later auth event for the SAME user id used to be
+  // dropped entirely (the fetchedForUserId guard existed to avoid
+  // re-fetching the profile row) - which meant a real confirmation-link
+  // click's fresh session.user (new email_confirmed_at) was silently
+  // discarded and emailVerified never flipped without a full reload.
+  it('flips from false to true on a later same-user event, without re-fetching the profile', async () => {
+    const profileBuilder = createQueryBuilder({ data: { id: 'user-1', name: 'Jane' }, error: null })
+    supabaseMock.from.mockReturnValue(profileBuilder)
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    act(() => emitAuthChange('INITIAL_SESSION', { user: { id: 'user-1', email_confirmed_at: null } }))
+    await waitFor(() => expect(result.current.user?.emailVerified).toBe(false))
+    const fromCallsAfterFirstFetch = supabaseMock.from.mock.calls.length
+
+    act(() => emitAuthChange('SIGNED_IN', { user: { id: 'user-1', email_confirmed_at: '2026-08-28T10:05:00.000Z' } }))
+
+    await waitFor(() => expect(result.current.user?.emailVerified).toBe(true))
+    expect(supabaseMock.from.mock.calls.length).toBe(fromCallsAfterFirstFetch)
+  })
+})
+
 describe('useAuth outside a provider', () => {
   it('throws instead of silently falling back to per-component state', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
