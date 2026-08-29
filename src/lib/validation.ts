@@ -10,7 +10,11 @@ const VITStudentEmailSchema = z
   .trim()
   .min(1, 'Email is required')
   .email('Enter a valid email address')
-  .refine((value) => VIT_EMAIL.test(value), 'Must use a VIT student email ending in @vitstudent.ac.in')
+  // TEMP-DISABLED (2026-08-29) - removing the VIT-only restriction so any
+  // valid email can sign up, per explicit request. REVERT BY UNCOMMENTING
+  // THIS LINE (src/lib/validation.ts:14) if the restriction should come
+  // back later.
+  // .refine((value) => VIT_EMAIL.test(value), 'Must use a VIT student email ending in @vitstudent.ac.in')
 
 export const LoginSchema = z.object({
   email: VITStudentEmailSchema,
