@@ -1,7 +1,32 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import fs from "fs";
 import { componentTagger } from "lovable-tagger";
+
+// maplibre-gl-worker.mjs (loaded via a `?url` import so Vite emits it as a
+// standalone worker script) contains its own hardcoded relative import of
+// "./maplibre-gl-shared.mjs" - a sibling chunk maplibre-gl ships next to the
+// worker in its own package. Vite's `?url` handling copies only the worker
+// file itself into dist/assets (hashed), never following that internal
+// relative import, so the sibling chunk is silently missing from the build
+// and the worker fails to load at runtime. Copy it in ourselves, unhashed,
+// so the worker's relative import resolves.
+function copyMaplibreWorkerSharedChunk(): Plugin {
+  const sourceFile = path.resolve(
+    __dirname,
+    "node_modules/maplibre-gl/dist/maplibre-gl-shared.mjs"
+  );
+  return {
+    name: "copy-maplibre-gl-worker-shared-chunk",
+    apply: "build",
+    closeBundle() {
+      const outDir = path.resolve(__dirname, "dist/assets");
+      fs.mkdirSync(outDir, { recursive: true });
+      fs.copyFileSync(sourceFile, path.join(outDir, "maplibre-gl-shared.mjs"));
+    },
+  };
+}
 
 // Project refs are the subdomain in each Supabase project's URL - not
 // secrets (they're visible in every request the browser makes), so
@@ -44,7 +69,7 @@ export default defineConfig(({ mode }) => {
       host: "::",
       port: 8080,
     },
-    plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+    plugins: [react(), copyMaplibreWorkerSharedChunk(), mode === "development" && componentTagger()].filter(Boolean),
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
